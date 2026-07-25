@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+1
 
 environment:
   sdk: ^3.12.2
@@ -72,10 +72,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    # Read-only USDA catalog, copied out of the bundle on first launch so
-    # sqlite can ATTACH it. `database/log.sqlite` is NOT bundled — the log is
-    # created from the schema in lib/core/database/log.drift.
     - database/foods.sqlite
+    - shorebird.yaml
 
   fonts:
     - family: IBM Plex Mono

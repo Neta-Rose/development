@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
@@ -23,7 +24,7 @@ class HomeScreen extends ConsumerWidget {
         children: [
           _header(summary),
           Expanded(child: _timeline(hours)),
-          _searchBar(),
+          _searchBar(context),
           _bottomNav(),
         ],
       ),
@@ -255,28 +256,30 @@ class HomeScreen extends ConsumerWidget {
     return '$n × $label';
   }
 
-  // Search and bottom nav are static placeholders — their features aren't
-  // built yet.
-  Widget _searchBar() {
-    return Container(
-      height: 48,
-      margin: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: _dim(.04),
-        border: Border.all(color: _dim(.22)),
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.search, size: 17, color: _dim(.45)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text('search foods…',
-                style: TextStyle(fontSize: 12.5, color: _dim(.45))),
-          ),
-          Icon(CupertinoIcons.barcode, size: 18, color: _dim(.45)),
-        ],
+  // The bottom nav is still a static placeholder — its screens aren't built.
+  Widget _searchBar(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.push('/search'),
+      child: Container(
+        height: 48,
+        margin: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: _dim(.04),
+          border: Border.all(color: _dim(.22)),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.search, size: 17, color: _dim(.45)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('search foods…',
+                  style: TextStyle(fontSize: 12.5, color: _dim(.45))),
+            ),
+            Icon(CupertinoIcons.barcode, size: 18, color: _dim(.45)),
+          ],
+        ),
       ),
     );
   }

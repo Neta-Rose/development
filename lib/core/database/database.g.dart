@@ -8291,7 +8291,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
 
   Selectable<RecentlyLoggedResult> recentlyLogged(String? since) {
     return customSelect(
-      'SELECT food_id, custom_food_id, name, emoji, count(*) AS n, max(logged_at) AS last_at FROM log_entries WHERE deleted = 0 AND local_date >= ?1 GROUP BY food_id, custom_food_id ORDER BY n DESC, last_at DESC LIMIT 20',
+      'SELECT food_id, custom_food_id, name, emoji, energy_kcal, protein_g, fat_g, carb_g, grams / coalesce(portion_qty, 1) AS serving_g, portion_label, count(*) AS n, max(logged_at) AS last_at FROM log_entries WHERE deleted = 0 AND local_date >= ?1 GROUP BY food_id, custom_food_id ORDER BY n DESC, last_at DESC LIMIT 20',
       variables: [Variable<String>(since)],
       readsFrom: {logEntries},
     ).map(
@@ -8300,6 +8300,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         customFoodId: row.readNullable<String>('custom_food_id'),
         name: row.read<String>('name'),
         emoji: row.readNullable<String>('emoji'),
+        energyKcal: row.readNullable<double>('energy_kcal'),
+        proteinG: row.readNullable<double>('protein_g'),
+        fatG: row.readNullable<double>('fat_g'),
+        carbG: row.readNullable<double>('carb_g'),
+        servingG: row.read<double>('serving_g'),
+        portionLabel: row.readNullable<String>('portion_label'),
         n: row.read<int>('n'),
         lastAt: row.readNullable<String>('last_at'),
       ),
@@ -12982,6 +12988,12 @@ class RecentlyLoggedResult {
   final String? customFoodId;
   final String name;
   final String? emoji;
+  final double? energyKcal;
+  final double? proteinG;
+  final double? fatG;
+  final double? carbG;
+  final double servingG;
+  final String? portionLabel;
   final int n;
   final String? lastAt;
   RecentlyLoggedResult({
@@ -12989,6 +13001,12 @@ class RecentlyLoggedResult {
     this.customFoodId,
     required this.name,
     this.emoji,
+    this.energyKcal,
+    this.proteinG,
+    this.fatG,
+    this.carbG,
+    required this.servingG,
+    this.portionLabel,
     required this.n,
     this.lastAt,
   });

@@ -182,6 +182,35 @@ void main() {
     }
   });
 
+  test('recents come back as search hits, per 100 g and per one portion',
+      () async {
+    final pick = (await db.customSelect(
+      'SELECT f.food_id, coalesce(f.display_name, f.description) AS name, '
+      'n.energy_kcal, n.protein_g FROM catalog.foods f '
+      'JOIN catalog.food_nutrition n ON n.food_id = f.food_id '
+      'WHERE n.energy_kcal > 0 ORDER BY f.food_id LIMIT 1',
+    ).get())
+        .single;
+    final foodId = pick.read<int>('food_id');
+
+    // Two cups, logged twice — one grouped hit, not two rows.
+    await log.logCatalogFood(foodId,
+        grams: 316, portionQty: 2, portionLabel: 'cup');
+    await log.logCatalogFood(foodId,
+        grams: 316, portionQty: 2, portionLabel: 'cup');
+
+    final hit = (await log.recent()).single;
+    expect(hit.foodId, foodId);
+    expect(hit.isCustom, isFalse);
+    expect(hit.name, pick.read<String>('name'));
+    // Nutrients stay per 100 g, exactly as the catalog states them.
+    expect(hit.kcal100g, closeTo(pick.read<double>('energy_kcal'), 1e-9));
+    expect(hit.protein100g, closeTo(pick.read<double>('protein_g'), 1e-9));
+    // A portion label is a measure of *one*, so 2 × cup comes back as one cup.
+    expect(hit.servingG, closeTo(158, 1e-9));
+    expect(hit.servingLabel, 'cup');
+  });
+
   test('portions are bare units and foods without them degrade to empty',
       () async {
     final withPortions = (await db.customSelect(

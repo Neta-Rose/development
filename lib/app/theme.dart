@@ -5,6 +5,7 @@ abstract final class AppColors {
   static const fg = Color(0xFFE6E8DF);
   static const navBg = Color(0xFF12140F);
   static const badgeBg = Color(0xFF222420);
+  static const tile = Color(0xFF1A1C17);
   static const amber = Color(0xFFE5A44C);
   static const protein = Color(0xFFE5705C);
   static const carbs = Color(0xFF7FBF6A);

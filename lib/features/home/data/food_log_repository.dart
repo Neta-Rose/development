@@ -3,6 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/database/nutrients.dart';
+import 'catalog_repository.dart';
 
 part 'food_log_repository.g.dart';
 
@@ -24,9 +25,30 @@ class FoodLogRepository {
   Stream<List<TimelineForDayResult>> watchDay(DateTime day) =>
       _db.timelineForDay(localDate(day)).watch();
 
-  Future<List<RecentlyLoggedResult>> recent({int days = 14}) => _db
-      .recentlyLogged(localDate(DateTime.now().subtract(Duration(days: days))))
-      .get();
+  /// Shaped as [FoodHit] so the search screen renders recents and search hits
+  /// with one row type. No join: `log_entries` snapshots the per-100 g vector,
+  /// the same convention the catalog columns use.
+  Future<List<FoodHit>> recent({int days = 14}) async {
+    final rows = await _db
+        .recentlyLogged(localDate(DateTime.now().subtract(Duration(days: days))))
+        .get();
+    return [
+      for (final r in rows)
+        FoodHit(
+          name: r.name,
+          isCustom: r.customFoodId != null,
+          foodId: r.foodId,
+          customFoodId: r.customFoodId,
+          emoji: r.emoji,
+          kcal100g: r.energyKcal,
+          protein100g: r.proteinG,
+          fat100g: r.fatG,
+          carb100g: r.carbG,
+          servingG: r.servingG,
+          servingLabel: r.portionLabel,
+        ),
+    ];
+  }
 
   /// Logs a catalog food, snapshotting its whole nutrient vector so history is
   /// immune to a later catalog upgrade.

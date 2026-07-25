@@ -19,6 +19,8 @@ class FoodHit {
     this.emoji,
     this.kcal100g,
     this.protein100g,
+    this.fat100g,
+    this.carb100g,
     this.servingG,
     this.servingLabel,
   });
@@ -30,6 +32,8 @@ class FoodHit {
   final String? emoji;
   final double? kcal100g;
   final double? protein100g;
+  final double? fat100g;
+  final double? carb100g;
 
   /// Null means "no defined serving — treat it as per 100 g", not "unknown".
   final double? servingG;
@@ -102,7 +106,8 @@ class CatalogRepository {
     if (match.isEmpty) return const [];
     final rows = await _db.customSelect(
       'SELECT f.food_id, coalesce(f.display_name, f.description) AS name, '
-      'f.emoji, f.kcal_100g, f.protein_100g, f.serving_g, f.serving_label '
+      'f.emoji, f.kcal_100g, f.protein_100g, f.fat_100g, f.carb_100g, '
+      'f.serving_g, f.serving_label '
       'FROM $table s JOIN catalog.foods f ON f.food_id = s.rowid '
       'WHERE $table MATCH ? ORDER BY $rank LIMIT ?',
       variables: [Variable(match), Variable(limit)],
@@ -116,6 +121,8 @@ class CatalogRepository {
           emoji: r.readNullable<String>('emoji'),
           kcal100g: r.readNullable<double>('kcal_100g'),
           protein100g: r.readNullable<double>('protein_100g'),
+          fat100g: r.readNullable<double>('fat_100g'),
+          carb100g: r.readNullable<double>('carb_100g'),
           servingG: r.readNullable<double>('serving_g'),
           servingLabel: r.readNullable<String>('serving_label'),
         ),
@@ -126,7 +133,8 @@ class CatalogRepository {
   /// hundred rows is sub-millisecond.
   Future<List<FoodHit>> _customSearch(String term) async {
     final rows = await _db.customSelect(
-      "SELECT id, name, emoji, energy_kcal, protein_g, serving_g, serving_label "
+      "SELECT id, name, emoji, energy_kcal, protein_g, fat_g, carb_g, "
+      "serving_g, serving_label "
       "FROM custom_foods WHERE deleted = 0 "
       "AND (name || ' ' || coalesce(brand, '')) LIKE '%' || ? || '%' LIMIT 20",
       variables: [Variable(term)],
@@ -141,6 +149,8 @@ class CatalogRepository {
           emoji: r.readNullable<String>('emoji'),
           kcal100g: r.readNullable<double>('energy_kcal'),
           protein100g: r.readNullable<double>('protein_g'),
+          fat100g: r.readNullable<double>('fat_g'),
+          carb100g: r.readNullable<double>('carb_g'),
           servingG: r.readNullable<double>('serving_g'),
           servingLabel: r.readNullable<String>('serving_label'),
         ),

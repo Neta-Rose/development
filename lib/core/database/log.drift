@@ -214,8 +214,14 @@ SELECT id, logged_at, name, emoji, grams, portion_qty, portion_label,
  WHERE deleted = 0 AND local_date = :date
  ORDER BY logged_at;
 
+-- Bare columns beside max() come from the row holding the maximum, so each
+-- group carries its most recent snapshot and last-used portion without a join.
 recentlyLogged:
 SELECT food_id, custom_food_id, name, emoji,
+       energy_kcal, protein_g, fat_g, carb_g,
+       -- Portion labels are measures of *one*, so 2 x cup must come back as a
+       -- one-cup gram weight, not the whole logged amount.
+       grams / coalesce(portion_qty, 1) AS serving_g, portion_label,
        count(*) AS n, max(logged_at) AS last_at
   FROM log_entries
  WHERE deleted = 0 AND local_date >= :since
