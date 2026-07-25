@@ -10,6 +10,11 @@ part 'router.g.dart';
 GoRouter router(Ref ref) => GoRouter(
       routes: [
         GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
-        GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+        GoRoute(
+          path: '/search',
+          builder: (context, state) => SearchScreen(
+            hour: int.tryParse(state.uri.queryParameters['hour'] ?? ''),
+          ),
+        ),
       ],
     );

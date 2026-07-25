@@ -1,0 +1,32 @@
+{
+  "installCommand": "dnf install -y xz && curl -sSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.6-stable.tar.xz | tar -xJ -C /opt && git config --global --add safe.directory /opt/flutter && /opt/flutter/bin/flutter pub get",
+  "buildCommand": "PATH=/opt/flutter/bin:$PATH flutter build web --release",
+  "outputDirectory": "build/web",
+  "cleanUrls": false,
+  "rewrites": [
+    {
+      "source": "/((?!assets/|sqlite3\\.wasm|drift_worker\\.js|main\\.dart\\.js|flutter_bootstrap\\.js|favicon\\.png|manifest\\.json|.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)\\.wasm",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/wasm"
+        }
+      ]
+    },
+    {
+      "source": "/assets/database/foods.sqlite",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/octet-stream"
+        }
+      ]
+    }
+  ]
+}

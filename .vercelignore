@@ -1,0 +1,8 @@
+# The build now runs ON Vercel (`installCommand`/`buildCommand` in vercel.json),
+# so sources must NOT be excluded here — only local artifacts git already ignores.
+# This exists so `vercel deploy` from a laptop uploads the same tree Git sends
+# instead of the 2.8 GB working directory.
+/build/
+/.dart_tool/
+/.claude/
+/.idea/

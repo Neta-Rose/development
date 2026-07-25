@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
+import '../data/food_log_repository.dart';
 import '../domain/daily_summary.dart';
 import 'home_providers.dart';
 import 'widgets/macro_bar.dart';
@@ -23,7 +24,7 @@ class HomeScreen extends ConsumerWidget {
       body: Column(
         children: [
           _header(summary),
-          Expanded(child: _timeline(hours)),
+          Expanded(child: _timeline(context, ref, hours)),
           _searchBar(context),
           _bottomNav(),
         ],
@@ -104,7 +105,8 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _timeline(List<TimelineHour> hours) {
+  Widget _timeline(
+      BuildContext context, WidgetRef ref, List<TimelineHour> hours) {
     return Padding(
       padding: const EdgeInsets.only(top: 14),
       child: Stack(
@@ -116,14 +118,16 @@ class HomeScreen extends ConsumerWidget {
               child: Container(width: 1, color: _dim(.1))),
           ListView(
             padding: EdgeInsets.zero,
-            children: [for (final hour in hours) _hourRow(hour)],
+            children: [
+              for (final hour in hours) _hourRow(context, ref, hour)
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _hourRow(TimelineHour hour) {
+  Widget _hourRow(BuildContext context, WidgetRef ref, TimelineHour hour) {
     final now = hour.kind == HourKind.now;
     final plan = hour.kind == HourKind.plan;
     return Padding(
@@ -160,12 +164,16 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                    color: AppColors.badgeBg, shape: BoxShape.circle),
-                child: Icon(Icons.add, size: 12, color: _dim(.55)),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => context.push('/search?hour=${hour.hour}'),
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: const BoxDecoration(
+                      color: AppColors.badgeBg, shape: BoxShape.circle),
+                  child: Icon(Icons.add, size: 12, color: _dim(.55)),
+                ),
               ),
               const Spacer(),
               Text(
@@ -182,13 +190,42 @@ class HomeScreen extends ConsumerWidget {
               ),
             ],
           ),
-          for (final item in hour.entries) _foodCard(item),
+          for (final item in hour.entries) _foodCard(ref, item),
         ],
       ),
     );
   }
 
-  Widget _foodCard(TimelineForDayResult item) {
+  Widget _foodCard(WidgetRef ref, TimelineForDayResult item) {
+    return Dismissible(
+      key: ValueKey(item.id),
+      direction: DismissDirection.startToEnd,
+      // No resize phase: the row leaves the tree when the stream reports the
+      // soft delete, which is what would otherwise trip Dismissible's
+      // "still part of the tree" assert.
+      resizeDuration: null,
+      background: Container(
+        margin: const EdgeInsets.only(left: 34, top: 6),
+        padding: const EdgeInsets.only(left: 14),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: AppColors.protein.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(Icons.delete_outline,
+            size: 17, color: AppColors.protein),
+      ),
+      onDismissed: (_) async {
+        final repo = await ref.read(foodLogRepositoryProvider.future);
+        // `id` is a TEXT PRIMARY KEY, which SQLite lets be null and drift
+        // therefore types nullable — the DEFAULT means a row always has one.
+        await repo.deleteEntry(item.id!);
+      },
+      child: _foodCardBody(item),
+    );
+  }
+
+  Widget _foodCardBody(TimelineForDayResult item) {
     return Container(
       margin: const EdgeInsets.only(left: 34, top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),

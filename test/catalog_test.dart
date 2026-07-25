@@ -15,7 +15,7 @@ void main() {
   late CatalogRepository catalog;
 
   setUp(() async {
-    db = AppDatabase.forTesting(NativeDatabase.memory(),
+    db = AppDatabase(NativeDatabase.memory(),
         catalogPath: 'database/foods.sqlite');
     log = FoodLogRepository(db);
     catalog = CatalogRepository(db);
@@ -171,15 +171,54 @@ void main() {
     // outweigh coincidental overlap: a bare 7-letter typo is genuinely
     // ambiguous ("cen" alone pulls in concentrate/center), a realistic query
     // is not.
+    // Matched on the stem, not the whole word: ranking by commonness surfaces
+    // plain "Strawberries" ahead of "Strawberry juice", which is the better
+    // answer but does not contain the singular.
     for (final (typo, want) in [
       ('chikcen breast', 'chicken'),
-      ('stawberry', 'strawberry'),
+      ('stawberry', 'strawberr'),
       ('yoghurt', 'yogurt'),
     ]) {
       final hits = await catalog.search(typo);
       expect(hits.first.name.toLowerCase(), contains(want),
           reason: '$typo should recover $want');
     }
+  });
+
+  test('ranking prefers the common food over the incidental one', () async {
+    final hits = await catalog.search('pasta');
+    int rankOf(String name) =>
+        hits.indexWhere((h) => h.name.toLowerCase().contains(name));
+
+    // bm25 alone put "Spinach pasta" first: every hit scores within 0.2 of
+    // every other, so the winner was document-length noise. Commonness is the
+    // signal that separates them.
+    expect(rankOf('cooked pasta'), isNonNegative);
+    expect(rankOf('cooked pasta'), lessThan(rankOf('spinach pasta')));
+  });
+
+  test('an exact whole-name match outranks longer names containing it',
+      () async {
+    // Otherwise "rice" leads with Brown rice sesame cakes.
+    final hits = await catalog.search('rice');
+    expect(hits.first.name.toLowerCase(), 'rice');
+  });
+
+  test('logging a food lifts it up the results for the same query', () async {
+    final before = await catalog.search('pasta');
+    // The worst-ranked hit, so any movement is unambiguously the recency term
+    // and not a tie being broken differently.
+    final victim = before.last;
+    expect(victim.isCustom, isFalse);
+
+    for (var i = 0; i < 3; i++) {
+      await log.logCatalogFood(victim.foodId!, grams: 100);
+    }
+
+    final after = await catalog.search('pasta');
+    expect(after.indexWhere((h) => h.foodId == victim.foodId),
+        lessThan(before.length - 1),
+        reason: '${victim.name} was logged 3x and should have moved up');
   });
 
   test('recents come back as search hits, per 100 g and per one portion',

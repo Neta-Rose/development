@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `healthapp` — an offline-first Flutter food/nutrition logger. Every read and write hits a local
-SQLite database; nothing in the UI path waits on the network. Flutter 3.44 / Dart 3.12, Android + iOS
+SQLite database; nothing in the UI path waits on the network. Flutter 3.44 / Dart 3.12, Android + iOS,
+plus a web build used only for development testing.
 
 ## Commands
 
@@ -16,6 +17,7 @@ flutter analyze
 flutter test
 flutter test test/catalog_test.dart --plain-name 'recipe roll-up'           # one test
 dart run build_runner build --delete-conflicting-outputs                   # or `watch`
+flutter build web && vercel deploy --prebuilt                               # dev-testing build
 shorebird patch android                                                     # code push
 ```
 
@@ -33,7 +35,9 @@ router itself is a provider. Repositories are constructed from the `appDatabaseP
 every consumer is async.
 
 `search/` reuses `home/data/` repositories rather than owning its own — `FoodHit` is the single row
-type for search results and recents.
+type for search results and recents. Results rank on a composite score in SQL (commonness, cooked
+prep, recent logs, exact-name match), **not** bare `bm25` — which barely discriminates on a one-word
+query. See the search section of `database/APP_DATABASE.md` before touching the ORDER BY.
 
 ### Two databases, one connection
 
@@ -43,9 +47,16 @@ type for search results and recents.
 - **Drift cannot typecheck an attached database.** Log-only queries are named queries in
   `lib/core/database/log.drift`; anything touching `catalog.*` is a hand-written `customSelect` in a
   repository. A cross-database VIEW is illegal in SQLite, so unions stay inline in Dart.
-- The catalog ships as a Flutter asset and is copied to the documents dir by `installCatalog()` —
-  Android assets live compressed in the APK with no file path. Bump `catalogVersion` when
+- The catalog ships as a Flutter asset and must be copied somewhere sqlite can open it — Android
+  assets live compressed in the APK with no file path. Bump `catalogVersion` when
   `database/foods.sqlite` is replaced; old copies are deleted on next launch.
+- **`openDatabase()` in `lib/core/database/connection/` is the only platform-specific code in
+  `lib/`** — a conditional export, io vs web. It returns the log executor plus the path to `ATTACH`,
+  so `database.dart` itself is platform-free. On io that path is a real file in the documents dir.
+  On web both databases live in one `IndexedDbFileSystem` registered as the default VFS: sqlite can
+  only `ATTACH` a file it reaches through its own VFS, so writing the catalog anywhere else (OPFS, a
+  drift worker's private VFS) is invisible to it. That is also why web runs without `drift_worker.js`.
+  `web/sqlite3.wasm` must match the `sqlite3` package version.
 - `PRAGMA foreign_keys = ON` and the `ATTACH` both run in `beforeOpen` — they are per-connection, not
   stored in the file.
 - Never write to the catalog and never store an FK into it (`log_entries.food_id` is deliberately not

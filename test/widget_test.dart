@@ -42,7 +42,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final today = DateTime.now();
     final now = DateTime(today.year, today.month, today.day, 9, 29);
@@ -68,6 +68,47 @@ void main() {
 
     // Drift's stream teardown schedules a zero-duration timer; unmount the
     // tree and pump so it fires inside the test body.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('swiping an entry right removes it and drops the total',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final today = DateTime.now();
+    final now = DateTime(today.year, today.month, today.day, 9, 29);
+    await tester.runAsync(() => seed(db, now));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) async => db),
+          nowProvider.overrideWith((ref) => now),
+        ],
+        child: const App(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.drag(find.text('Oats'), const Offset(500, 0));
+    await tester.pumpAndSettle();
+    // The delete is async through the repository future, so let the stream
+    // emit before asserting.
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Oats'), findsNothing);
+    expect(find.text('Whole Milk'), findsOneWidget);
+    // 640 - 303.
+    expect(find.textContaining('337', findRichText: true), findsOneWidget);
+
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 1));
   });

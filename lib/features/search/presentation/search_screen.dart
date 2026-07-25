@@ -14,7 +14,10 @@ double _unitG(FoodHit f) => f.servingG ?? 100;
 String? _unitLabel(FoodHit f) => f.servingG == null ? null : f.servingLabel;
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.hour});
+
+  /// Hour of today to log into, from the timeline's `+`. Null logs at now.
+  final int? hour;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -125,7 +128,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Future<void> _logBatch() async {
-    await ref.read(batchProvider.notifier).logAll();
+    await ref.read(batchProvider.notifier).logAll(hour: widget.hour);
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -170,17 +173,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       itemCount: batch.length,
       separatorBuilder: (_, _) => const SizedBox(width: 12),
-      itemBuilder: (context, i) => _chip(batch[i], i),
+      itemBuilder: (context, i) => _chip(batch[i]),
     );
   }
 
-  Widget _chip(BatchItem item, int i) {
+  Widget _chip(BatchItem item) {
     // Dismissible gives the design's swipe-up-to-remove — including the drag
     // threshold — for free.
+    //
+    // The key must be the item's own identity: a positional one lets the
+    // survivor of two same-named chips inherit the dismissed chip's state and
+    // render as already gone.
     return Dismissible(
-      key: ValueKey('$i-${item.food.name}'),
+      key: ObjectKey(item),
       direction: DismissDirection.up,
-      onDismissed: (_) => ref.read(batchProvider.notifier).removeAt(i),
+      onDismissed: (_) => ref.read(batchProvider.notifier).remove(item),
       background: const SizedBox.shrink(),
       child: SizedBox(
         width: 64,

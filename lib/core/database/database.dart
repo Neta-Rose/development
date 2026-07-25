@@ -1,10 +1,7 @@
-import 'dart:io';
-
 import 'package:drift/drift.dart';
-import 'package:drift_flutter/drift_flutter.dart';
-import 'package:flutter/services.dart' show rootBundle;
-import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'connection/connection.dart';
 
 part 'database.g.dart';
 
@@ -14,9 +11,7 @@ const catalogVersion = 1;
 
 @DriftDatabase(include: {'log.drift'})
 class AppDatabase extends _$AppDatabase {
-  AppDatabase(this.catalogPath) : super(driftDatabase(name: 'healthapp'));
-
-  AppDatabase.forTesting(super.e, {this.catalogPath});
+  AppDatabase(super.e, {this.catalogPath});
 
   /// Path to the catalog copy to `ATTACH`, or null to run without it — tests
   /// that only touch the log, and any path where installing the copy failed.
@@ -38,28 +33,10 @@ class AppDatabase extends _$AppDatabase {
       );
 }
 
-/// Copies the read-only catalog out of the asset bundle so sqlite can `ATTACH`
-/// it — on Android assets live compressed inside the APK with no file path.
-Future<String> installCatalog() async {
-  final dir = await getApplicationDocumentsDirectory();
-  final file = File('${dir.path}/catalog_v$catalogVersion.sqlite');
-  if (!file.existsSync()) {
-    final bytes = await rootBundle.load('database/foods.sqlite');
-    await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
-    for (final old in dir.listSync()) {
-      if (old is File &&
-          old.path != file.path &&
-          old.uri.pathSegments.last.startsWith('catalog_v')) {
-        old.deleteSync();
-      }
-    }
-  }
-  return file.path;
-}
-
 @Riverpod(keepAlive: true)
 Future<AppDatabase> appDatabase(Ref ref) async {
-  final db = AppDatabase(await installCatalog());
+  final (executor, catalogPath) = await openDatabase();
+  final db = AppDatabase(executor, catalogPath: catalogPath);
   ref.onDispose(db.close);
   return db;
 }

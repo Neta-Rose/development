@@ -277,23 +277,52 @@ For week/month buckets, group on `strftime('%Y-%W', local_date)` / `substr(local
 
 ⚠️ `sum()` over all-NULL returns **NULL**, not 0. Use `total()` if you want 0.
 
-**Search: catalog + the user's own foods in one result set:**
+**Search: catalog + the user's own foods in one result set.**
+
+⚠️ **Do not rank by bare `bm25`.** For a one-word query it barely discriminates: all 182 `pasta`
+matches score between −8.95 and −8.78, so the winner is document-length noise ("Spinach pasta"
+beat "Cooked pasta"). Rank by a composite score instead:
 
 ```sql
-SELECT * FROM (
-  SELECT f.food_id, NULL AS custom_food_id, coalesce(f.display_name, f.description) AS name,
-         f.emoji, f.kcal_100g, f.protein_100g, f.serving_g, f.serving_label, 0 AS is_custom
-    FROM food_fts s JOIN foods f ON f.food_id = s.rowid
-   WHERE food_fts MATCH ?1 ORDER BY bm25(food_fts, 10.0, 3.0, 1.0) LIMIT ?2)
-UNION ALL SELECT * FROM (
-  SELECT NULL, id, name, emoji, energy_kcal, protein_g, serving_g, serving_label, 1
-    FROM custom_foods
-   WHERE deleted = 0 AND (name || ' ' || coalesce(brand, '')) LIKE '%' || ?3 || '%' LIMIT 20)
-ORDER BY is_custom DESC;
+SELECT f.food_id, coalesce(f.display_name, f.description) AS name, f.emoji,
+       f.kcal_100g, f.protein_100g, f.fat_100g, f.carb_100g, f.serving_g, f.serving_label
+  FROM food_fts s
+  JOIN foods f ON f.food_id = s.rowid
+  LEFT JOIN (SELECT food_id, count(*) AS n FROM log_entries
+              WHERE deleted = 0 AND food_id IS NOT NULL AND local_date >= ?1
+              GROUP BY food_id) r ON r.food_id = f.food_id
+ WHERE food_fts MATCH ?2
+ ORDER BY bm25(food_fts, 10.0, 3.0, 1.0) * (1
+     + 1.0 * coalesce(f.commonness, 0.4)                -- likely in an ordinary kitchen
+     + 0.3 * (f.prep_type IS 'cooked')                  -- you log cooked pasta, not dry
+     + 1.5 * min(coalesce(r.n, 0), 3) / 3.0             -- logged lately, saturating
+     + 0.6 * (lower(coalesce(f.display_name, f.description)) = lower(?3))
+     - 0.3 * (<name||description> LIKE '%restaurant%'   -- institutional / infant variants
+           OR <…> LIKE '%school lunch%' OR <…> LIKE '%baby food%'))
+ LIMIT ?4;
 ```
 
+Three ways to break this expression:
+
+1. **bm25 is negative.** A bigger multiplier is a *smaller* number, so `ORDER BY score` stays
+   ascending, best-first. The multiplier floor is `1 + 1.0*0.05 − 0.3 = 0.75`, so it can never reach
+   zero and flip the ordering — keep it that way if you retune the weights.
+2. **`prep_type IS 'cooked'`, never `= 'cooked'`.** `prep_type` is 52% NULL; `=` yields NULL there,
+   NULL poisons the whole product, and NULL sorts **first**. Same care for any new column term.
+3. **Sort before the `LIMIT`.** "Cooked pasta" sits at bm25 ranks 26 and 41–45 of 182, so re-ranking
+   an already-limited result set in Dart cannot see it. That is why the score lives in SQL.
+
+Multiplicative, not additive, because the bm25 spread is query-dependent — `chicken` spans 0.37,
+`chicken brea` spans 2.35. Scaling by bm25 magnitude keeps one set of weights honest across both.
+
+The trigram fallback uses the same expression with `bm25(food_fts_trgm)`, but its hits are
+**appended after** the exact ones rather than merged: the two indexes produce non-comparable bm25
+magnitudes, and a fuzzy hit is always the lower-confidence answer.
+
 Custom foods have **no FTS index** and need none — a `LIKE` scan over 500 of them measures 0.111 ms.
-Note a cross-database **VIEW is illegal in SQLite**, so this must stay inline in the app.
+With no bm25 to rank by they order on `count(*) DESC, max(logged_at) DESC` over the same window.
+Note a cross-database **VIEW is illegal in SQLite**, so this must stay inline in the app — the
+catalog and `log_entries` join fine within one connection, but only as a hand-written statement.
 
 **Recently logged, for re-logging:**
 
@@ -366,3 +395,6 @@ the edit would never sync. **A recipe save must end with**
 10. Trigram fallback needs the query split into OR-ed 3-grams; matching the misspelling directly returns nothing.
 11. A custom food referenced by history cannot be hard-deleted — the FK blocks it. Soft-delete it.
 12. `updated_at` is unix **seconds**, not milliseconds.
+13. Search ranks on a composite score, not bare `bm25` — which is **negative**, so a larger
+    multiplier sorts earlier. Sort before the `LIMIT`, and compare `prep_type` with `IS` (it is 52%
+    NULL, and a NULL term poisons the product and sorts first).

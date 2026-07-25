@@ -56,22 +56,34 @@ class Batch extends _$Batch {
 
   void add(BatchItem item) => state = [...state, item];
 
-  void removeAt(int i) => state = [...state]..removeAt(i);
+  /// By identity, not equality — the same food staged twice is two items.
+  void remove(BatchItem item) =>
+      state = state.where((e) => !identical(e, item)).toList();
 
   void clear() => state = const [];
 
-  Future<void> logAll() async {
+  /// [hour] pins the entries to that hour of today, top of the hour; null logs
+  /// at the current time.
+  Future<void> logAll({int? hour}) async {
     final repo = await ref.read(foodLogRepositoryProvider.future);
+    final now = DateTime.now();
+    final at = hour == null ? null : DateTime(now.year, now.month, now.day, hour);
     for (final item in state) {
       final food = item.food;
       final p = item.portion;
       // The CHECK constraint guarantees exactly one of the two ids.
       if (food.isCustom) {
         await repo.logCustomFood(food.customFoodId!,
-            grams: p.grams, portionQty: p.qty, portionLabel: p.portionLabel);
+            grams: p.grams,
+            portionQty: p.qty,
+            portionLabel: p.portionLabel,
+            at: at);
       } else {
         await repo.logCatalogFood(food.foodId!,
-            grams: p.grams, portionQty: p.qty, portionLabel: p.portionLabel);
+            grams: p.grams,
+            portionQty: p.qty,
+            portionLabel: p.portionLabel,
+            at: at);
       }
     }
     state = const [];
