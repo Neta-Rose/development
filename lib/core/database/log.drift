@@ -1,0 +1,224 @@
+CREATE TABLE custom_foods (
+    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    name          TEXT NOT NULL,
+    brand         TEXT,
+    barcode       TEXT,
+    emoji         TEXT DEFAULT '🍽️',
+    variable_fat  INTEGER NOT NULL DEFAULT 0,
+    serving_g     REAL,
+    serving_label TEXT,
+    energy_kcal REAL CHECK (energy_kcal IS NULL OR energy_kcal >= 0),
+    protein_g REAL CHECK (protein_g IS NULL OR protein_g >= 0),
+    fat_g REAL CHECK (fat_g IS NULL OR fat_g >= 0),
+    carb_g REAL CHECK (carb_g IS NULL OR carb_g >= 0),
+    fiber_g REAL CHECK (fiber_g IS NULL OR fiber_g >= 0),
+    sugar_g REAL CHECK (sugar_g IS NULL OR sugar_g >= 0),
+    starch_g REAL CHECK (starch_g IS NULL OR starch_g >= 0),
+    water_g REAL CHECK (water_g IS NULL OR water_g >= 0),
+    ash_g REAL CHECK (ash_g IS NULL OR ash_g >= 0),
+    alcohol_g REAL CHECK (alcohol_g IS NULL OR alcohol_g >= 0),
+    sat_fat_g REAL CHECK (sat_fat_g IS NULL OR sat_fat_g >= 0),
+    mono_fat_g REAL CHECK (mono_fat_g IS NULL OR mono_fat_g >= 0),
+    poly_fat_g REAL CHECK (poly_fat_g IS NULL OR poly_fat_g >= 0),
+    trans_fat_g REAL CHECK (trans_fat_g IS NULL OR trans_fat_g >= 0),
+    cholesterol_mg REAL CHECK (cholesterol_mg IS NULL OR cholesterol_mg >= 0),
+    omega3_epa_g REAL CHECK (omega3_epa_g IS NULL OR omega3_epa_g >= 0),
+    omega3_dha_g REAL CHECK (omega3_dha_g IS NULL OR omega3_dha_g >= 0),
+    calcium_mg REAL CHECK (calcium_mg IS NULL OR calcium_mg >= 0),
+    iron_mg REAL CHECK (iron_mg IS NULL OR iron_mg >= 0),
+    magnesium_mg REAL CHECK (magnesium_mg IS NULL OR magnesium_mg >= 0),
+    phosphorus_mg REAL CHECK (phosphorus_mg IS NULL OR phosphorus_mg >= 0),
+    potassium_mg REAL CHECK (potassium_mg IS NULL OR potassium_mg >= 0),
+    sodium_mg REAL CHECK (sodium_mg IS NULL OR sodium_mg >= 0),
+    zinc_mg REAL CHECK (zinc_mg IS NULL OR zinc_mg >= 0),
+    copper_mg REAL CHECK (copper_mg IS NULL OR copper_mg >= 0),
+    manganese_mg REAL CHECK (manganese_mg IS NULL OR manganese_mg >= 0),
+    selenium_ug REAL CHECK (selenium_ug IS NULL OR selenium_ug >= 0),
+    fluoride_ug REAL CHECK (fluoride_ug IS NULL OR fluoride_ug >= 0),
+    iodine_ug REAL CHECK (iodine_ug IS NULL OR iodine_ug >= 0),
+    vitamin_a_rae_ug REAL CHECK (vitamin_a_rae_ug IS NULL OR vitamin_a_rae_ug >= 0),
+    retinol_ug REAL CHECK (retinol_ug IS NULL OR retinol_ug >= 0),
+    carotene_beta_ug REAL CHECK (carotene_beta_ug IS NULL OR carotene_beta_ug >= 0),
+    vitamin_c_mg REAL CHECK (vitamin_c_mg IS NULL OR vitamin_c_mg >= 0),
+    vitamin_d_ug REAL CHECK (vitamin_d_ug IS NULL OR vitamin_d_ug >= 0),
+    vitamin_e_mg REAL CHECK (vitamin_e_mg IS NULL OR vitamin_e_mg >= 0),
+    vitamin_k_ug REAL CHECK (vitamin_k_ug IS NULL OR vitamin_k_ug >= 0),
+    thiamin_mg REAL CHECK (thiamin_mg IS NULL OR thiamin_mg >= 0),
+    riboflavin_mg REAL CHECK (riboflavin_mg IS NULL OR riboflavin_mg >= 0),
+    niacin_mg REAL CHECK (niacin_mg IS NULL OR niacin_mg >= 0),
+    pantothenic_acid_mg REAL CHECK (pantothenic_acid_mg IS NULL OR pantothenic_acid_mg >= 0),
+    vitamin_b6_mg REAL CHECK (vitamin_b6_mg IS NULL OR vitamin_b6_mg >= 0),
+    folate_ug REAL CHECK (folate_ug IS NULL OR folate_ug >= 0),
+    folate_dfe_ug REAL CHECK (folate_dfe_ug IS NULL OR folate_dfe_ug >= 0),
+    vitamin_b12_ug REAL CHECK (vitamin_b12_ug IS NULL OR vitamin_b12_ug >= 0),
+    choline_mg REAL CHECK (choline_mg IS NULL OR choline_mg >= 0),
+    biotin_ug REAL CHECK (biotin_ug IS NULL OR biotin_ug >= 0),
+    caffeine_mg REAL CHECK (caffeine_mg IS NULL OR caffeine_mg >= 0),
+    theobromine_mg REAL CHECK (theobromine_mg IS NULL OR theobromine_mg >= 0),
+    lycopene_ug REAL CHECK (lycopene_ug IS NULL OR lycopene_ug >= 0),
+    lutein_zeaxanthin_ug REAL CHECK (lutein_zeaxanthin_ug IS NULL OR lutein_zeaxanthin_ug >= 0),
+    updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    deleted       INTEGER NOT NULL DEFAULT 0,
+    dirty         INTEGER NOT NULL DEFAULT 1,
+    CHECK (length(trim(name)) > 0),
+    CHECK (serving_g IS NULL OR serving_g > 0),
+    CHECK (serving_label IS NULL OR serving_g IS NOT NULL),
+    CHECK (emoji IS NULL OR (length(emoji) BETWEEN 1 AND 8 AND unicode(emoji) > 127))
+);
+CREATE TABLE custom_food_portions (
+    custom_food_id TEXT NOT NULL REFERENCES custom_foods(id) ON DELETE CASCADE,
+    seq            INTEGER NOT NULL,
+    label          TEXT NOT NULL,
+    gram_weight    REAL NOT NULL,
+    PRIMARY KEY (custom_food_id, seq),
+    CHECK (gram_weight > 0 AND length(trim(label)) > 0)
+) WITHOUT ROWID;
+CREATE TABLE recipe_ingredients (
+    recipe_id      TEXT NOT NULL REFERENCES custom_foods(id) ON DELETE CASCADE,
+    seq            INTEGER NOT NULL,
+    food_id        INTEGER,
+    custom_food_id TEXT REFERENCES custom_foods(id),
+    grams          REAL NOT NULL,
+    PRIMARY KEY (recipe_id, seq),
+    CHECK ((food_id IS NULL) <> (custom_food_id IS NULL)),
+    CHECK (custom_food_id IS NULL OR custom_food_id <> recipe_id)
+) WITHOUT ROWID;
+CREATE TABLE recipe_steps (
+    recipe_id  TEXT NOT NULL REFERENCES custom_foods(id) ON DELETE CASCADE,
+    seq        INTEGER NOT NULL,
+    -- `AS <name>` renames only the Dart getter; the SQL column stays `text`.
+    -- Needed because `text` collides with drift's Table.text() column builder.
+    text       TEXT NOT NULL AS stepText,
+    duration_s INTEGER,
+    PRIMARY KEY (recipe_id, seq),
+    CHECK (length(trim(text)) > 0),
+    CHECK (duration_s IS NULL OR duration_s > 0)
+) WITHOUT ROWID;
+CREATE TABLE recipe_step_ingredients (
+    recipe_id      TEXT NOT NULL,
+    step_seq       INTEGER NOT NULL,
+    ingredient_seq INTEGER NOT NULL,
+    PRIMARY KEY (recipe_id, step_seq, ingredient_seq),
+    FOREIGN KEY (recipe_id, step_seq)
+        REFERENCES recipe_steps(recipe_id, seq) ON DELETE CASCADE,
+    FOREIGN KEY (recipe_id, ingredient_seq)
+        REFERENCES recipe_ingredients(recipe_id, seq) ON DELETE CASCADE
+) WITHOUT ROWID;
+CREATE TABLE cook_session (
+    recipe_id  TEXT PRIMARY KEY,
+    step_seq   INTEGER NOT NULL,
+    started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (recipe_id, step_seq)
+        REFERENCES recipe_steps(recipe_id, seq) ON DELETE CASCADE
+) WITHOUT ROWID;
+CREATE TABLE log_entries (
+    id             TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    food_id        INTEGER,
+    custom_food_id TEXT REFERENCES custom_foods(id),
+    logged_at      TEXT NOT NULL,
+    local_date     TEXT GENERATED ALWAYS AS (substr(logged_at, 1, 10)) VIRTUAL,
+    grams          REAL NOT NULL,
+    portion_qty    REAL,
+    portion_label  TEXT,
+    name           TEXT NOT NULL,
+    emoji          TEXT,
+    energy_kcal REAL,
+    protein_g REAL,
+    fat_g REAL,
+    carb_g REAL,
+    fiber_g REAL,
+    sugar_g REAL,
+    starch_g REAL,
+    water_g REAL,
+    ash_g REAL,
+    alcohol_g REAL,
+    sat_fat_g REAL,
+    mono_fat_g REAL,
+    poly_fat_g REAL,
+    trans_fat_g REAL,
+    cholesterol_mg REAL,
+    omega3_epa_g REAL,
+    omega3_dha_g REAL,
+    calcium_mg REAL,
+    iron_mg REAL,
+    magnesium_mg REAL,
+    phosphorus_mg REAL,
+    potassium_mg REAL,
+    sodium_mg REAL,
+    zinc_mg REAL,
+    copper_mg REAL,
+    manganese_mg REAL,
+    selenium_ug REAL,
+    fluoride_ug REAL,
+    iodine_ug REAL,
+    vitamin_a_rae_ug REAL,
+    retinol_ug REAL,
+    carotene_beta_ug REAL,
+    vitamin_c_mg REAL,
+    vitamin_d_ug REAL,
+    vitamin_e_mg REAL,
+    vitamin_k_ug REAL,
+    thiamin_mg REAL,
+    riboflavin_mg REAL,
+    niacin_mg REAL,
+    pantothenic_acid_mg REAL,
+    vitamin_b6_mg REAL,
+    folate_ug REAL,
+    folate_dfe_ug REAL,
+    vitamin_b12_ug REAL,
+    choline_mg REAL,
+    biotin_ug REAL,
+    caffeine_mg REAL,
+    theobromine_mg REAL,
+    lycopene_ug REAL,
+    lutein_zeaxanthin_ug REAL,
+    updated_at     INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    deleted        INTEGER NOT NULL DEFAULT 0,
+    dirty          INTEGER NOT NULL DEFAULT 1,
+    CHECK ((food_id IS NULL) <> (custom_food_id IS NULL))
+);
+CREATE TABLE sync_state (
+    -- Dart getter only; SQL column stays `table_name`, which would otherwise
+    -- collide with Table.tableName.
+    table_name TEXT PRIMARY KEY AS syncTable,
+    cursor     TEXT,
+    synced_at  INTEGER
+);
+CREATE INDEX ix_log_day
+    ON log_entries(local_date, logged_at) WHERE deleted = 0;
+CREATE INDEX ix_log_dirty    ON log_entries(id)  WHERE dirty = 1;
+CREATE INDEX ix_custom_dirty ON custom_foods(id) WHERE dirty = 1;
+CREATE INDEX ix_ingredient_of
+    ON recipe_ingredients(custom_food_id) WHERE custom_food_id IS NOT NULL;
+CREATE INDEX ix_custom_barcode
+    ON custom_foods(barcode) WHERE barcode IS NOT NULL AND deleted = 0;
+CREATE TRIGGER tr_log_touch AFTER UPDATE ON log_entries
+WHEN new.updated_at = old.updated_at BEGIN
+    UPDATE log_entries SET updated_at = strftime('%s', 'now'), dirty = 1 WHERE id = new.id;
+END;
+CREATE TRIGGER tr_custom_touch AFTER UPDATE ON custom_foods
+WHEN new.updated_at = old.updated_at BEGIN
+    UPDATE custom_foods SET updated_at = strftime('%s', 'now'), dirty = 1 WHERE id = new.id;
+END;
+
+-- Named queries. Log-only: anything touching `catalog.*` lives in Dart as a
+-- customSelect, because drift can't typecheck an attached database.
+
+timelineForDay:
+SELECT id, logged_at, name, emoji, grams, portion_qty, portion_label,
+       grams / 100.0 * energy_kcal AS kcal,
+       grams / 100.0 * protein_g   AS protein,
+       grams / 100.0 * fat_g       AS fat,
+       grams / 100.0 * carb_g      AS carb
+  FROM log_entries
+ WHERE deleted = 0 AND local_date = :date
+ ORDER BY logged_at;
+
+recentlyLogged:
+SELECT food_id, custom_food_id, name, emoji,
+       count(*) AS n, max(logged_at) AS last_at
+  FROM log_entries
+ WHERE deleted = 0 AND local_date >= :since
+ GROUP BY food_id, custom_food_id
+ ORDER BY n DESC, last_at DESC
+ LIMIT 20;

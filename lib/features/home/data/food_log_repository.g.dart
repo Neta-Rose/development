@@ -15,11 +15,13 @@ final foodLogRepositoryProvider = FoodLogRepositoryProvider._();
 final class FoodLogRepositoryProvider
     extends
         $FunctionalProvider<
+          AsyncValue<FoodLogRepository>,
           FoodLogRepository,
-          FoodLogRepository,
-          FoodLogRepository
+          FutureOr<FoodLogRepository>
         >
-    with $Provider<FoodLogRepository> {
+    with
+        $FutureModifier<FoodLogRepository>,
+        $FutureProvider<FoodLogRepository> {
   FoodLogRepositoryProvider._()
     : super(
         from: null,
@@ -36,22 +38,14 @@ final class FoodLogRepositoryProvider
 
   @$internal
   @override
-  $ProviderElement<FoodLogRepository> $createElement(
+  $FutureProviderElement<FoodLogRepository> $createElement(
     $ProviderPointer pointer,
-  ) => $ProviderElement(pointer);
+  ) => $FutureProviderElement(pointer);
 
   @override
-  FoodLogRepository create(Ref ref) {
+  FutureOr<FoodLogRepository> create(Ref ref) {
     return foodLogRepository(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(FoodLogRepository value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<FoodLogRepository>(value),
-    );
   }
 }
 
-String _$foodLogRepositoryHash() => r'd4e3fa7591cf38fc5922babeb2a944ab50325e79';
+String _$foodLogRepositoryHash() => r'eca0babdfc68c0beaabbf043a363b8be1d76b0f8';

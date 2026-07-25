@@ -50,45 +50,6 @@ final class NowProvider
 
 String _$nowHash() => r'cd84bcb298b7b9e78457b899f2d2445afe8d297f';
 
-@ProviderFor(todayEntries)
-final todayEntriesProvider = TodayEntriesProvider._();
-
-final class TodayEntriesProvider
-    extends
-        $FunctionalProvider<
-          AsyncValue<List<FoodEntry>>,
-          List<FoodEntry>,
-          Stream<List<FoodEntry>>
-        >
-    with $FutureModifier<List<FoodEntry>>, $StreamProvider<List<FoodEntry>> {
-  TodayEntriesProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'todayEntriesProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$todayEntriesHash();
-
-  @$internal
-  @override
-  $StreamProviderElement<List<FoodEntry>> $createElement(
-    $ProviderPointer pointer,
-  ) => $StreamProviderElement(pointer);
-
-  @override
-  Stream<List<FoodEntry>> create(Ref ref) {
-    return todayEntries(ref);
-  }
-}
-
-String _$todayEntriesHash() => r'c775c324124df50a91d779208f4e54bf469af17e';
-
 @ProviderFor(dailySummary)
 final dailySummaryProvider = DailySummaryProvider._();
 
@@ -128,49 +89,7 @@ final class DailySummaryProvider
   }
 }
 
-String _$dailySummaryHash() => r'4fc424f0248c2f2029ff8b9e468219b09ba08446';
-
-@ProviderFor(anabolicWindow)
-final anabolicWindowProvider = AnabolicWindowProvider._();
-
-final class AnabolicWindowProvider
-    extends
-        $FunctionalProvider<AnabolicWindow?, AnabolicWindow?, AnabolicWindow?>
-    with $Provider<AnabolicWindow?> {
-  AnabolicWindowProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'anabolicWindowProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$anabolicWindowHash();
-
-  @$internal
-  @override
-  $ProviderElement<AnabolicWindow?> $createElement($ProviderPointer pointer) =>
-      $ProviderElement(pointer);
-
-  @override
-  AnabolicWindow? create(Ref ref) {
-    return anabolicWindow(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(AnabolicWindow? value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<AnabolicWindow?>(value),
-    );
-  }
-}
-
-String _$anabolicWindowHash() => r'021554d8a9b3de8ebaf044839469660bd8064eca';
+String _$dailySummaryHash() => r'7652ff96e35a741e85f4eead7023368ceb8a65ca';
 
 @ProviderFor(timeline)
 final timelineProvider = TimelineProvider._();
@@ -217,4 +136,4 @@ final class TimelineProvider
   }
 }
 
-String _$timelineHash() => r'de5529b01b40cde2b9cdcc9baf42785d2e6a8d7e';
+String _$timelineHash() => r'207cc632b1c3c86c1ab1f71d405f0f1040b91183';

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/database/database.dart';
 import '../domain/daily_summary.dart';
-import '../domain/food_entry.dart';
 import 'home_providers.dart';
 import 'widgets/macro_bar.dart';
 
@@ -16,14 +16,12 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final summary = ref.watch(dailySummaryProvider);
-    final window = ref.watch(anabolicWindowProvider);
     final hours = ref.watch(timelineProvider);
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Column(
         children: [
           _header(summary),
-          if (window != null) _anabolicCard(window),
           Expanded(child: _timeline(hours)),
           _searchBar(),
           _bottomNav(),
@@ -100,68 +98,6 @@ class HomeScreen extends ConsumerWidget {
                   fontSize: 9, letterSpacing: 1.5, color: _dim(.45))),
           const SizedBox(height: 5),
           MacroBar(value: v, target: t, color: color, height: 2),
-        ],
-      ),
-    );
-  }
-
-  Widget _anabolicCard(AnabolicWindow w) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-      decoration: BoxDecoration(
-        color: AppColors.amber.withValues(alpha: .07),
-        border: Border.all(color: AppColors.amber.withValues(alpha: .5)),
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(w.title,
-                    style: const TextStyle(
-                        fontSize: 9.5,
-                        letterSpacing: 1.5,
-                        color: AppColors.amber)),
-              ),
-              const Icon(Icons.access_time, size: 14, color: AppColors.amber),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _windowMacro('PROTEIN', w.protein, AnabolicWindow.proteinTarget,
-                  AppColors.protein),
-              const SizedBox(width: 14),
-              _windowMacro(
-                  'CARBS', w.carbs, AnabolicWindow.carbsTarget, AppColors.carbs),
-              const SizedBox(width: 14),
-              _windowMacro('FAT', w.fat, AnabolicWindow.fatTarget, AppColors.fat),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _windowMacro(String label, int v, int t, Color color) {
-    return Expanded(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(label,
-                  style: TextStyle(fontSize: 9, letterSpacing: 1, color: color)),
-              Text('$v / ${t}g',
-                  style: TextStyle(fontSize: 10, color: _dim(.6))),
-            ],
-          ),
-          const SizedBox(height: 5),
-          MacroBar(value: v, target: t, color: color),
         ],
       ),
     );
@@ -251,8 +187,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _foodCard(FoodEntry item) {
-    final workout = item.type == EntryType.workout;
+  Widget _foodCard(TimelineForDayResult item) {
     return Container(
       margin: const EdgeInsets.only(left: 34, top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
@@ -265,7 +200,9 @@ class HomeScreen extends ConsumerWidget {
         children: [
           SizedBox(
             width: 30,
-            child: Text(item.icon,
+            // 1 of 13,694 catalog foods has no emoji, and custom foods may
+            // clear theirs.
+            child: Text(item.emoji ?? '🍽️',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 22)),
           ),
@@ -275,41 +212,47 @@ class HomeScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item.name,
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                        color: workout ? AppColors.amber : AppColors.fg)),
+                    style: const TextStyle(
+                        fontSize: 12.5, height: 1.35, color: AppColors.fg)),
                 const SizedBox(height: 3),
-                if (!workout && item.kcal != null)
+                if (item.kcal != null)
                   Text.rich(
                     TextSpan(
                       style: TextStyle(fontSize: 10, color: _dim(.5)),
                       children: [
-                        TextSpan(text: '${item.kcal} kcal · '),
+                        TextSpan(text: '${item.kcal!.round()} kcal · '),
                         TextSpan(
-                            text: '${item.protein}P',
+                            text: '${item.protein?.round() ?? 0}P',
                             style: const TextStyle(color: AppColors.protein)),
                         const TextSpan(text: ' '),
                         TextSpan(
-                            text: '${item.carbs}C',
+                            text: '${item.carb?.round() ?? 0}C',
                             style: const TextStyle(color: AppColors.carbs)),
                         const TextSpan(text: ' '),
                         TextSpan(
-                            text: '${item.fat}F',
+                            text: '${item.fat?.round() ?? 0}F',
                             style: const TextStyle(color: AppColors.fat)),
-                        TextSpan(text: ' · ${item.serving}'),
+                        TextSpan(text: ' · ${_serving(item)}'),
                       ],
                     ),
-                  )
-                else if (item.meta != null)
-                  Text(item.meta!,
-                      style: TextStyle(fontSize: 10, color: _dim(.5))),
+                  ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// Portion labels are measures of *one*, so this renders `qty × label` and
+  /// never assumes the label carries a count. Falls back to raw grams, which is
+  /// the authoritative amount either way.
+  String _serving(TimelineForDayResult item) {
+    final qty = item.portionQty;
+    final label = item.portionLabel;
+    if (qty == null || label == null) return '${item.grams.round()} g';
+    final n = qty == qty.roundToDouble() ? qty.round().toString() : '$qty';
+    return '$n × $label';
   }
 
   // Search and bottom nav are static placeholders — their features aren't
