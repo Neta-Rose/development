@@ -4,15 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../home/data/catalog_repository.dart';
 import '../domain/portion.dart';
+import 'food_detail_screen.dart';
+import 'portion_pad.dart';
 import 'quick_add.dart';
 import 'search_providers.dart';
 
 Color _dim(double a) => AppColors.dim(a);
-
-/// A food's own serving weight. `serving_g IS NULL` means "no defined serving —
-/// treat it as per 100 g", which is why the label goes null with it.
-double _unitG(FoodHit f) => f.servingG ?? 100;
-String? _unitLabel(FoodHit f) => f.servingG == null ? null : f.servingLabel;
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key, this.hour});
@@ -30,6 +27,12 @@ enum _Mode { search, quick }
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
   _Mode _mode = _Mode.search;
+
+  /// The food whose portion pad is open, if any. The pad *replaces* the search
+  /// field rather than sitting over it: dropping the focused field out of the
+  /// tree is what retracts the OS keyboard, and its `autofocus` brings the
+  /// keyboard back when the pad closes.
+  FoodHit? _editing;
 
   @override
   void dispose() {
@@ -57,7 +60,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       Expanded(
                           child: _results(hits, query,
                               loading: results.isLoading)),
-                      SafeArea(top: false, child: _searchField(query)),
+                      SafeArea(top: false, child: _bottom(query)),
                     ],
                   )
                 : QuickAdd(
@@ -166,6 +169,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
+  /// The detail screen, opened on a hit or on a chip already staged. Pushed on
+  /// the plain navigator rather than routed: a [FoodHit] and a [BatchItem] are
+  /// object identities, not something a URL can carry.
+  void _openDetail(FoodHit food, {BatchItem? editing}) {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) =>
+          FoodDetailScreen(food: food, editing: editing, hour: widget.hour),
+    ));
+  }
+
   Future<void> _logBatch() async {
     await ref.read(batchProvider.notifier).logAll(hour: widget.hour);
     if (mounted) Navigator.of(context).pop();
@@ -228,7 +242,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       direction: DismissDirection.up,
       onDismissed: (_) => ref.read(batchProvider.notifier).remove(item),
       background: const SizedBox.shrink(),
-      child: SizedBox(
+      child: GestureDetector(
+        // Reopens the amount rather than staging a second one — the detail
+        // screen replaces this item in place.
+        onTap: () => _openDetail(item.food, editing: item),
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
         width: 64,
         child: Column(
           children: [
@@ -272,6 +291,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             _macros(item.protein, item.carbs, item.fat, size: 8),
           ],
         ),
+        ),
       ),
     );
   }
@@ -304,7 +324,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   style: TextStyle(
                       fontSize: 9.5, letterSpacing: 1.5, color: _dim(.45)),
                 ),
-                Text('swipe → for portion',
+                Text('tap portion pill to edit grams',
                     style: TextStyle(fontSize: 9, color: _dim(.28))),
               ],
             ),
@@ -315,8 +335,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           food: food,
           onAdd: (portion) =>
               ref.read(batchProvider.notifier).add(BatchItem(food, portion)),
+          onOpen: () => _openDetail(food),
+          onEdit: () {
+            setState(() => _editing = food);
+            FocusScope.of(context).unfocus();
+          },
         );
       },
+    );
+  }
+
+  Widget _bottom(String query) {
+    final editing = _editing;
+    if (editing == null) return _searchField(query);
+    return PortionPad(
+      // Keyed so switching rows resets the typed amount instead of carrying it.
+      key: ObjectKey(editing),
+      food: editing,
+      onAdd: (portion) {
+        ref.read(batchProvider.notifier).add(BatchItem(editing, portion));
+        setState(() => _editing = null);
+      },
+      onClose: () => setState(() => _editing = null),
+      onLogAll: _logBatch,
     );
   }
 
@@ -371,17 +412,26 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 }
 
-/// A search hit. Dragging it right picks a portion, dragging up or down while
-/// held multiplies it; a tap adds one serving.
+/// A search hit. Dragging it right picks a portion and stages it, dragging up
+/// or down while held multiplies it; a tap opens the food's detail screen. The
+/// portion pill opens the pad in place, for an amount too exact to swipe to
+/// but not worth leaving the list for.
 ///
 /// The horizontal recognizer reads both axes off `globalPosition` — its own
 /// `delta` carries the primary axis only — so a vertical drag still scrolls the
 /// list until a horizontal one wins the arena.
 class _ResultRow extends StatefulWidget {
-  const _ResultRow({required this.food, required this.onAdd});
+  const _ResultRow({
+    required this.food,
+    required this.onAdd,
+    required this.onOpen,
+    required this.onEdit,
+  });
 
   final FoodHit food;
   final void Function(Portion) onAdd;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
 
   @override
   State<_ResultRow> createState() => _ResultRowState();
@@ -394,8 +444,8 @@ class _ResultRowState extends State<_ResultRow> {
   Portion? get _picked => portionForDrag(
         _delta.dx,
         _delta.dy,
-        unitG: _unitG(widget.food),
-        unitLabel: _unitLabel(widget.food),
+        unitG: widget.food.unitG,
+        unitLabel: widget.food.unitLabel,
       );
 
   void _reset() => setState(() => _delta = Offset.zero);
@@ -404,13 +454,14 @@ class _ResultRowState extends State<_ResultRow> {
   Widget build(BuildContext context) {
     final food = widget.food;
     final picked = _picked;
-    // Before a drag the row reads as one serving, which is also what a tap adds.
-    final shown = picked ?? wholeServing(_unitG(food), _unitLabel(food));
+    // Before a drag the row reads as one serving, which is also what the
+    // detail screen opens on.
+    final shown = picked ?? wholeServing(food.unitG, food.unitLabel);
     final shift = _delta.dx > 0 ? (18 + _delta.dx * .35).clamp(0.0, 92.0) : 0.0;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => widget.onAdd(shown),
+      onTap: widget.onOpen,
       onHorizontalDragStart: (d) => setState(() {
         _start = d.globalPosition;
         _delta = Offset.zero;
@@ -494,29 +545,14 @@ class _ResultRowState extends State<_ResultRow> {
                 Text(food.name,
                     style: const TextStyle(fontSize: 13, color: AppColors.fg)),
                 const SizedBox(height: 3),
-                Text.rich(
-                  TextSpan(
-                    style: TextStyle(fontSize: 10, color: _dim(.5)),
-                    children: [
-                      TextSpan(
-                          text: '${shown.scale(food.kcal100g).round()} kcal · '),
-                      TextSpan(
-                          text: '${shown.scale(food.protein100g).round()}P',
-                          style: const TextStyle(color: AppColors.protein)),
-                      const TextSpan(text: ' '),
-                      TextSpan(
-                          text: '${shown.scale(food.carb100g).round()}C',
-                          style: const TextStyle(color: AppColors.carbs)),
-                      const TextSpan(text: ' '),
-                      TextSpan(
-                          text: '${shown.scale(food.fat100g).round()}F',
-                          style: const TextStyle(color: AppColors.fat)),
-                    ],
-                  ),
+                macroLine(
+                  shown.scale(food.kcal100g),
+                  shown.scale(food.protein100g),
+                  shown.scale(food.carb100g),
+                  shown.scale(food.fat100g),
                 ),
-                const SizedBox(height: 2),
-                Text(_serving(food),
-                    style: TextStyle(fontSize: 10, color: _dim(.35))),
+                const SizedBox(height: 6),
+                _pill(food),
               ],
             ),
           ),
@@ -525,10 +561,30 @@ class _ResultRowState extends State<_ResultRow> {
     );
   }
 
+  /// The row's default amount, and the way into the pad. Its own detector wins
+  /// the arena against the row's, so tapping it doesn't also stage a serving.
+  Widget _pill(FoodHit food) {
+    return GestureDetector(
+      onTap: widget.onEdit,
+      child: Container(
+        // Vertical padding rather than a height: a Container with an alignment
+        // grows to its constraints, and this one has to hug its text.
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.amber.withValues(alpha: .12),
+          border: Border.all(color: AppColors.amber.withValues(alpha: .45)),
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Text(_serving(food),
+            style: const TextStyle(fontSize: 9.5, color: AppColors.amber)),
+      ),
+    );
+  }
+
   /// Portion labels are measures of *one*, so this reads `1 × label (n g)`.
   String _serving(FoodHit food) {
-    final label = _unitLabel(food);
-    final g = _unitG(food).round();
+    final label = food.unitLabel;
+    final g = food.unitG.round();
     return label == null ? '$g g' : '1 × $label ($g g)';
   }
 }

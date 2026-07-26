@@ -15,6 +15,26 @@ abstract final class AppColors {
   static Color dim(double a) => fg.withValues(alpha: a);
 }
 
+/// `120 kcal · 30P 5C 2F` in the macro colours — the summary line under a food,
+/// wherever one is shown.
+Text macroLine(double kcal, double p, double c, double f, {double size = 10}) {
+  TextSpan span(String s, Color color) =>
+      TextSpan(text: s, style: TextStyle(color: color));
+  return Text.rich(
+    TextSpan(
+      style: TextStyle(fontSize: size, color: AppColors.dim(.5)),
+      children: [
+        TextSpan(text: '${kcal.round()} kcal · '),
+        span('${p.round()}P', AppColors.protein),
+        const TextSpan(text: ' '),
+        span('${c.round()}C', AppColors.carbs),
+        const TextSpan(text: ' '),
+        span('${f.round()}F', AppColors.fat),
+      ],
+    ),
+  );
+}
+
 final appTheme = ThemeData(
   brightness: Brightness.dark,
   fontFamily: 'IBM Plex Mono',

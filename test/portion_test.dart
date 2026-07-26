@@ -86,4 +86,61 @@ void main() {
     expect(wholeServing(166, 'breast').scale(204), closeTo(338.64, 1e-9));
     expect(wholeServing(166, 'breast').scale(null), 0);
   });
+
+  test('the pad parses whole numbers, decimals and mixed fractions', () {
+    expect(parseAmount('150'), 150);
+    expect(parseAmount('1.5'), 1.5);
+    expect(parseAmount('1/2'), 0.5);
+    expect(parseAmount('1 1/2'), 1.5);
+    expect(parseAmount(' 2  3/4 '), 2.75);
+    // Half-typed and unparseable input reads as zero rather than throwing —
+    // it is what the keypad holds between two keystrokes.
+    expect(parseAmount(''), 0);
+    expect(parseAmount('/'), 0);
+    expect(parseAmount('1/'), 0);
+    expect(parseAmount('1/0'), 0);
+    expect(parseAmount('.'), 0);
+  });
+
+  test('a measure logs as qty × label, a gram conversion as bare grams', () {
+    const cup = PortionUnit('cup', 158);
+    final two = portionFor(2, cup);
+    expect(two.grams, 316);
+    expect(two.qty, 2);
+    expect(two.portionLabel, 'cup');
+    expect(two.label, '2 × cup');
+    expect(portionFor(1.5, cup).label, '1.5 × cup');
+
+    // `g`/`oz` are conversions, not catalog measures: nothing to snapshot, so
+    // they log — and read — as grams.
+    final oz = portionFor(4, portionUnits().firstWhere((u) => u.label == 'oz'));
+    expect(oz.grams, closeTo(113.4, 1e-9));
+    expect(oz.qty, isNull);
+    expect(oz.portionLabel, isNull);
+    expect(oz.label, '113 g'); // whole above 100 g, a decimal below
+    expect(portionFor(1, portionUnits().last).label, '28.4 g');
+    expect(portionFor(150, const PortionUnit('g', 1, isMeasure: false)).label,
+        '150 g');
+  });
+
+  test('the unit list leads with the food\'s own serving and never repeats', () {
+    final units = portionUnits(
+      servingG: 158,
+      servingLabel: 'cup',
+      // The catalog repeats the serving as its own portion row, and a zero
+      // gram weight would divide by nothing.
+      catalogPortions: const [
+        (label: 'cup', gramWeight: 158),
+        (label: 'tbsp', gramWeight: 9.9),
+        (label: 'pinch', gramWeight: 0),
+      ],
+    );
+    expect(units.map((u) => u.label), ['cup', 'tbsp', 'g', 'oz']);
+    expect(units.first.gramWeight, 158);
+
+    // A food with no serving still offers the two conversions.
+    expect(portionUnits().map((u) => u.label), ['g', 'oz']);
+    // A label without a weight behind it is not a unit.
+    expect(portionUnits(servingLabel: 'slice').map((u) => u.label), ['g', 'oz']);
+  });
 }

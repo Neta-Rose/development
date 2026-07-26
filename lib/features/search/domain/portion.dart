@@ -107,3 +107,72 @@ Portion wholeServing(double unitG, String? unitLabel) => Portion(
 /// `2`, not `2.0`; `0.5` stays `0.5`.
 String formatQty(double q) =>
     q == q.roundToDouble() ? q.round().toString() : '$q';
+
+/// Grams as the pad shows them: whole above 100 g, one decimal below — and
+/// never a bare `.0`.
+String formatGrams(double g) =>
+    g >= 100 ? '${g.round()}' : formatQty((g * 10).round() / 10);
+
+/// A unit the portion pad can count in.
+///
+/// [isMeasure] is false for `g`/`oz`: a `portion_label` is a catalog measure of
+/// *one*, so a gram conversion logs as bare grams instead.
+class PortionUnit {
+  const PortionUnit(this.label, this.gramWeight, {this.isMeasure = true});
+
+  final String label;
+  final double gramWeight;
+  final bool isMeasure;
+}
+
+/// Units offered for a food: its own serving, then its catalog portions, then
+/// the two gram conversions. Deduplicated by label and never empty.
+///
+// ponytail: the unit list is whatever the current schema exposes. Re-point this
+// one function when the deduplicated portions schema lands.
+List<PortionUnit> portionUnits({
+  double? servingG,
+  String? servingLabel,
+  List<({String label, double gramWeight})> catalogPortions = const [],
+}) {
+  final out = <PortionUnit>[];
+  void add(PortionUnit u) {
+    if (u.gramWeight > 0 && !out.any((e) => e.label == u.label)) out.add(u);
+  }
+
+  if (servingG != null && servingLabel != null) {
+    add(PortionUnit(servingLabel, servingG));
+  }
+  for (final p in catalogPortions) {
+    add(PortionUnit(p.label, p.gramWeight));
+  }
+  add(const PortionUnit('g', 1, isMeasure: false));
+  add(const PortionUnit('oz', 28.35, isMeasure: false));
+  return out;
+}
+
+/// [amount] of [unit] as something loggable.
+Portion portionFor(double amount, PortionUnit unit) {
+  final grams = amount * unit.gramWeight;
+  // A gram conversion logs as bare grams, so it reads as grams too — `4 oz`
+  // stages as `113.4 g`.
+  if (!unit.isMeasure) {
+    return Portion(grams: grams, label: '${formatGrams(grams)} g');
+  }
+  return Portion(
+    grams: grams,
+    qty: amount,
+    portionLabel: unit.label,
+    label: '${formatQty(amount)} × ${unit.label}',
+  );
+}
+
+/// The pad's amount field: whitespace-separated parts summed, each optionally a
+/// fraction. `1 1/2` → 1.5, `150` → 150, anything unparseable → 0.
+double parseAmount(String s) => s.trim().split(RegExp(r'\s+')).fold(0.0, (t, p) {
+      final slash = p.indexOf('/');
+      if (slash < 0) return t + (double.tryParse(p) ?? 0);
+      final d = double.tryParse(p.substring(slash + 1)) ?? 0;
+      if (d == 0) return t;
+      return t + (double.tryParse(p.substring(0, slash)) ?? 0) / d;
+    });

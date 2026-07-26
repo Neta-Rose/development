@@ -44,7 +44,20 @@ class FoodHit {
   /// Null means "no defined serving — treat it as per 100 g", not "unknown".
   final double? servingG;
   final String? servingLabel;
+
+  /// The food's own serving weight, with the per-100 g fallback applied. The
+  /// label goes null with it: without a gram weight there is no unit to name.
+  double get unitG => servingG ?? 100;
+  String? get unitLabel => servingG == null ? null : servingLabel;
 }
+
+/// The extras the detail screen shows under the four list macros, per 100 g.
+typedef FoodExtras = ({
+  double? fiber,
+  double? sugar,
+  double? satFat,
+  double? sodium,
+});
 
 /// Read-only access to the attached USDA catalog. Every query is local; the
 /// catalog file is never written to and never referenced by a foreign key.
@@ -261,6 +274,30 @@ class CatalogRepository {
       for (final r in rows)
         (label: r.read<String>('label'), gramWeight: r.read<double>('gram_weight'))
     ];
+  }
+
+  /// The handful of extra nutrients the detail screen breaks out, from
+  /// whichever table the hit came from — the two carry name-identical nutrient
+  /// columns, so only the table and the key differ.
+  ///
+  /// Null for a quick entry, which has no row in either table yet, and for the
+  /// two catalog foods with no `food_nutrition` row. Callers show nothing.
+  Future<FoodExtras?> extraNutrients({int? foodId, String? customId}) async {
+    if (customId == null && foodId == null) return null;
+    final rows = await _db.customSelect(
+      'SELECT fiber_g, sugar_g, sat_fat_g, sodium_mg FROM '
+      '${customId != null ? 'custom_foods WHERE id = ?' : 'catalog.food_nutrition WHERE food_id = ?'}',
+      variables: [customId != null ? Variable(customId) : Variable(foodId)],
+      readsFrom: customId != null ? {_db.customFoods} : const {},
+    ).get();
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return (
+      fiber: r.readNullable<double>('fiber_g'),
+      sugar: r.readNullable<double>('sugar_g'),
+      satFat: r.readNullable<double>('sat_fat_g'),
+      sodium: r.readNullable<double>('sodium_mg'),
+    );
   }
 
   /// The long tail, for an "all nutrients" expander. Disjoint from the wide

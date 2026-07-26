@@ -34,6 +34,21 @@ Future<List<FoodHit>> searchResults(Ref ref) async {
   return (await ref.watch(catalogRepositoryProvider.future)).search(query);
 }
 
+/// The measures a catalog food comes in, for the portion pad's unit chips.
+/// Catalog-only: custom foods keep their single serving label.
+@riverpod
+Future<List<({String label, double gramWeight})>> foodPortions(
+        Ref ref, int foodId) async =>
+    (await ref.watch(catalogRepositoryProvider.future)).portions(foodId);
+
+/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
+/// rather than the [FoodHit] itself, which has no value equality.
+@riverpod
+Future<FoodExtras?> foodExtras(Ref ref,
+        {int? foodId, String? customId}) async =>
+    (await ref.watch(catalogRepositoryProvider.future))
+        .extraNutrients(foodId: foodId, customId: customId);
+
 /// One picked amount of one food, staged but not yet logged.
 class BatchItem {
   const BatchItem(this.food, this.portion);
@@ -59,6 +74,11 @@ class Batch extends _$Batch {
   /// By identity, not equality — the same food staged twice is two items.
   void remove(BatchItem item) =>
       state = state.where((e) => !identical(e, item)).toList();
+
+  /// Swaps [item] for [next] where it stands, so re-editing a chip's amount
+  /// rewrites that chip instead of staging a second one. Same identity rule.
+  void replace(BatchItem item, BatchItem next) =>
+      state = [for (final e in state) identical(e, item) ? next : e];
 
   void clear() => state = const [];
 
