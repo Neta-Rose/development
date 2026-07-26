@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../home/data/catalog_repository.dart';
 import '../domain/portion.dart';
+import 'quick_add.dart';
 import 'search_providers.dart';
 
 Color _dim(double a) => AppColors.dim(a);
@@ -23,8 +24,12 @@ class SearchScreen extends ConsumerStatefulWidget {
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
+/// The design's four header toggles, minus the two whose modes don't exist.
+enum _Mode { search, quick }
+
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
+  _Mode _mode = _Mode.search;
 
   @override
   void dispose() {
@@ -45,14 +50,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         children: [
           _header(batch),
           _chipStrip(batch),
-          Expanded(child: _results(hits, query, loading: results.isLoading)),
-          SafeArea(top: false, child: _searchField(query)),
+          Expanded(
+            child: _mode == _Mode.search
+                ? Column(
+                    children: [
+                      Expanded(
+                          child: _results(hits, query,
+                              loading: results.isLoading)),
+                      SafeArea(top: false, child: _searchField(query)),
+                    ],
+                  )
+                : QuickAdd(
+                    onAdd: (food, portion) => ref
+                        .read(batchProvider.notifier)
+                        .add(BatchItem(food, portion)),
+                  ),
+          ),
         ],
       ),
     );
   }
 
-  // ponytail: the design's scan / AI-plate / quick-add mode toggles live here,
+  // ponytail: the design's scan and AI-plate toggles belong beside these two,
   // left out until those modes exist rather than rendered as dead buttons.
   Widget _header(List<BatchItem> batch) {
     double sum(double Function(BatchItem) f) =>
@@ -107,6 +126,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ],
             ),
           ),
+          _modeButton(Icons.search, _Mode.search),
+          const SizedBox(width: 8),
+          _modeButton(Icons.bolt, _Mode.quick),
+          const SizedBox(width: 4),
           Opacity(
             opacity: staged ? 1 : .3,
             child: GestureDetector(
@@ -123,6 +146,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _modeButton(IconData icon, _Mode mode) {
+    final on = _mode == mode;
+    return GestureDetector(
+      onTap: () => setState(() => _mode = mode),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: on ? AppColors.amber : AppColors.badgeBg,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 19, color: on ? AppColors.bg : _dim(.6)),
       ),
     );
   }

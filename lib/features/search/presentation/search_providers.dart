@@ -71,9 +71,32 @@ class Batch extends _$Batch {
     for (final item in state) {
       final food = item.food;
       final p = item.portion;
-      // The CHECK constraint guarantees exactly one of the two ids.
+      // A hit out of the database has exactly one of the two ids; a quick entry
+      // has neither until the row below is written.
       if (food.isCustom) {
-        await repo.logCustomFood(food.customFoodId!,
+        // Saved here rather than when the chip was staged: nothing else on the
+        // search screen writes before the check button, and a chip swiped off
+        // the strip would otherwise leave an orphan custom_foods row.
+        //
+        // ponytail: every quick add writes its own row, so the same off-menu
+        // food typed twice is two rows. `recent()` surfaces yesterday's, which
+        // is cheaper than retyping — dedupe by name if that stops holding.
+        final id = food.customFoodId ??
+            await repo.saveCustomFood(
+              name: food.name,
+              emoji: food.emoji,
+              // A quick entry is one nominal 100 g serving, so saveCustomFood's
+              // divisor is 1 and the typed numbers land verbatim as per 100 g.
+              servingG: 100,
+              servingLabel: 'serving',
+              perServing: {
+                'energy_kcal': food.kcal100g ?? 0,
+                'protein_g': food.protein100g ?? 0,
+                'fat_g': food.fat100g ?? 0,
+                'carb_g': food.carb100g ?? 0,
+              },
+            );
+        await repo.logCustomFood(id,
             grams: p.grams,
             portionQty: p.qty,
             portionLabel: p.portionLabel,

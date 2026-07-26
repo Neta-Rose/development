@@ -11,6 +11,11 @@ Future<CatalogRepository> catalogRepository(Ref ref) async =>
     CatalogRepository(await ref.watch(appDatabaseProvider.future));
 
 /// One search hit, from either the catalog or the user's own foods.
+///
+/// A hit read out of the database has exactly one of [foodId]/[customFoodId],
+/// mirroring the `log_entries` CHECK. A quick entry typed on the search screen
+/// is the third case: `isCustom` with **neither** id, meaning "no `custom_foods`
+/// row yet". `Batch.logAll` creates the row on its way out.
 class FoodHit {
   const FoodHit({
     required this.name,
