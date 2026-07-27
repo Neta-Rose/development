@@ -1,0 +1,44 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Sonnet 5 · Claude Pro
+  ▘▘ ▝▝    ~/Documents/repos/development
+
+
+❯ /clear                                                                        
+
+❯ In @generate-sqlite/ , I want you to refactor the LLM                         
+  @generate-sqlite/src/schema.py stage and the merging                          
+  @generate-sqlite/src/merge.py stage. The end result of both of these stages   
+  is a deduplicated table of food items, each with multiple preparation types.  
+  Each deduplicated item should have a user-friendly name, and each preparation 
+  type should have a different macro profile.                                   
+                                                                                
+  The new pipeline is inspired by the current implementation, but it is         
+  different in many areas. It should be rougly implemented as follows -         
+  1. After the brand_detect ( @generate-sqlite/src/brand_detect.py ) ingestion  
+  stage, find clusters of foods items with a similar p/c/f ratio.               
+  2. For each cluster of foods with a similar p/c/f ratio, group foods by token 
+  similarity. This would find groups of food items that have the same           
+  ingridients and macros, but split entirely different food items with similar  
+  p/c/f into different groups. For example, different preparation of chicken    
+  thigh would be in the same group, but steak, which has a similar p/c/f ratio, 
+  would be in a different group because it doesn't share any tokens with        
+  chicken thigh.                                                                
+  3. Within each group of items sharing tokens, group items but their           
+  individual amount of protein, carbs, and fat. For example, different          
+  preparations of cooked chicken thigh (grilled, boiled, baked), all have       
+  roughly the same protein, carbs, and fat per 100g. However, raw chicken thigh 
+  has water content, so it should be in different group.                        
+  4. For each group of items with rougly the same protein, fat, and carbs, use  
+  an LLM to classify what the preparation type should be named for the entire   
+  group. In the LLM request, pass all groups of items from the token-similarity 
+  group, and tell the LLM to generate different preparation types for the       
+  groups. Taking the chicken thigh example, the "grilled", "boiled", and        
+  "baked" group should have a preparation type of                               
+  ⎿  Listed directory generate-sqlite/
+  ⎿  Read generate-sqlite/src/schema.py (225 lines)
+  ⎿  Read generate-sqlite/src/merge.py (298 lines)
+  ⎿  Read generate-sqlite/src/brand_detect.py (76 lines)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ /export                                                                       
+  ⎿  Export cancelled

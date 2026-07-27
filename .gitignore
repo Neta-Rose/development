@@ -46,3 +46,14 @@ app.*.map.json
 /android/app/release
 .vercel
 .env*
+
+# generate-sqlite: pipeline data. The DuckDB is the source of truth but is a
+# local artifact — the only output that ships is database/foods.sqlite, which
+# Stage 7 writes there directly and which *is* tracked.
+generate-sqlite/data/*.duckdb*
+generate-sqlite/data/backup/
+generate-sqlite/data/log.sqlite
+generate-sqlite/data/raw/*
+!generate-sqlite/data/raw/.gitkeep
+__pycache__/
+.venv/

@@ -7,7 +7,7 @@ part 'database.g.dart';
 
 /// Bump when `database/foods.sqlite` is replaced. The catalog is read-only and
 /// upgraded wholesale, so a new file name is the entire upgrade story.
-const catalogVersion = 1;
+const catalogVersion = 2;
 
 @DriftDatabase(include: {'log.drift'})
 class AppDatabase extends _$AppDatabase {
