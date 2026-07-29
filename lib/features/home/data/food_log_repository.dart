@@ -101,6 +101,28 @@ class FoodLogRepository {
       (_db.update(_db.logEntries)..where((t) => t.id.equals(id)))
           .write(LogEntriesCompanion(grams: Value(grams)));
 
+  /// A `custom_foods` row for a food the plate detector supplied whole: the
+  /// existing row with this name, or a new one.
+  ///
+  /// Reuse is by trimmed, case-insensitive name, which deliberately differs from
+  /// quick add's documented one-row-per-entry behaviour. Quick add is a thing the
+  /// user typed once; a generated food is a thing the *detector* will name
+  /// identically every time that food appears, so one row per meal would grow
+  /// `custom_foods` without bound.
+  ///
+  /// `serving_g`/`serving_label` stay NULL, so [saveCustomFood]'s divisor is 1,
+  /// the per-100 g values land verbatim, and the food logs as bare grams.
+  Future<String> findOrCreateCustomFood({
+    required String name,
+    String? emoji,
+    Map<String, double> per100g = const {},
+  }) async {
+    final trimmed = name.trim();
+    final existing = await _db.customFoodByName(trimmed).getSingleOrNull();
+    if (existing != null) return existing;
+    return saveCustomFood(name: trimmed, emoji: emoji, perServing: per100g);
+  }
+
   /// Saves a custom food. [perServing] holds nutrient columns as the user typed
   /// them on a per-serving form; storage is per 100 g. Returns the new id.
   Future<String> saveCustomFood({

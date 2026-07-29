@@ -4,9 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../home/data/catalog_repository.dart';
 import '../domain/portion.dart';
+import 'ai_capture_pane.dart';
+import 'ai_plate_list.dart';
+import 'ai_providers.dart';
+import 'camera_providers.dart';
 import 'food_detail_screen.dart';
 import 'portion_pad.dart';
 import 'quick_add.dart';
+import 'scan_pane.dart';
 import 'search_providers.dart';
 
 Color _dim(double a) => AppColors.dim(a);
@@ -21,8 +26,13 @@ class SearchScreen extends ConsumerStatefulWidget {
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-/// The design's four header toggles, minus the two whose modes don't exist.
-enum _Mode { search, quick }
+/// The design's four header toggles, in the design's order. The mode a fresh
+/// screen opens in is [_Mode.search], not the first of these.
+enum _Mode { scan, search, ai, quick }
+
+/// Let a test find a toggle without matching on an icon.
+const aiToggleKey = Key('ai-mode-toggle');
+const scanToggleKey = Key('scan-mode-toggle');
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
@@ -53,33 +63,53 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         children: [
           _header(batch),
           _chipStrip(batch),
-          Expanded(
-            child: _mode == _Mode.search
-                ? Column(
-                    children: [
-                      Expanded(
-                          child: _results(hits, query,
-                              loading: results.isLoading)),
-                      SafeArea(top: false, child: _bottom(query)),
-                    ],
-                  )
-                : QuickAdd(
-                    onAdd: (food, portion) => ref
-                        .read(batchProvider.notifier)
-                        .add(BatchItem(food, portion)),
-                  ),
-          ),
+          Expanded(child: _body(hits, query, results.isLoading)),
         ],
       ),
     );
   }
 
-  // ponytail: the design's scan and AI-plate toggles belong beside these two,
-  // left out until those modes exist rather than rendered as dead buttons.
+  Widget _body(List<FoodHit> hits, String query, bool loading) {
+    switch (_mode) {
+      case _Mode.search:
+        return Column(
+          children: [
+            Expanded(child: _results(hits, query, loading: loading)),
+            SafeArea(top: false, child: _bottom(query)),
+          ],
+        );
+      case _Mode.quick:
+        return QuickAdd(
+          onAdd: (food, portion) =>
+              ref.read(batchProvider.notifier).add(BatchItem(food, portion)),
+        );
+      case _Mode.ai:
+        // The camera pane is fixed-height and the plate scrolls under it, which
+        // is the design's layout. The pane owns its own confirm control, so a
+        // failed detection never hides the way out.
+        return Column(
+          children: [
+            AiCapturePane(onLogged: _logBatch),
+            const Expanded(child: AiPlateList()),
+          ],
+        );
+      case _Mode.scan:
+        return ScanPane(
+          onSearchInstead: () => setState(() => _mode = _Mode.search),
+        );
+    }
+  }
+
   Widget _header(List<BatchItem> batch) {
     double sum(double Function(BatchItem) f) =>
         batch.fold(0.0, (a, b) => a + f(b));
     final staged = batch.isNotEmpty;
+    // Hidden rather than disabled when there is no plate-detect service in this
+    // build or no camera on the device: a toggle that always fails is worse than
+    // a mode the user never learns about. Scan asks the narrower question — it
+    // reads a barcode, so it wants a camera and nothing else.
+    final aiAvailable = ref.watch(aiAvailableProvider).value ?? false;
+    final cameraAvailable = ref.watch(cameraAvailableProvider).value ?? false;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 64, 14, 10),
       child: Row(
@@ -120,7 +150,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                _macros(
+                macros(
                   sum((b) => b.protein),
                   sum((b) => b.carbs),
                   sum((b) => b.fat),
@@ -129,7 +159,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ],
             ),
           ),
+          if (cameraAvailable) ...[
+            _modeButton(Icons.qr_code_scanner, _Mode.scan, key: scanToggleKey),
+            const SizedBox(width: 8),
+          ],
           _modeButton(Icons.search, _Mode.search),
+          if (aiAvailable) ...[
+            const SizedBox(width: 8),
+            _modeButton(Icons.auto_awesome, _Mode.ai, key: aiToggleKey),
+          ],
           const SizedBox(width: 8),
           _modeButton(Icons.bolt, _Mode.quick),
           const SizedBox(width: 4),
@@ -153,10 +191,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _modeButton(IconData icon, _Mode mode) {
+  Widget _modeButton(IconData icon, _Mode mode, {Key? key}) {
     final on = _mode == mode;
     return GestureDetector(
-      onTap: () => setState(() => _mode = mode),
+      key: key,
+      onTap: () {
+        FocusScope.of(context).unfocus();
+        setState(() => _mode = mode);
+      },
       child: Container(
         width: 40,
         height: 40,
@@ -182,24 +224,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Future<void> _logBatch() async {
     await ref.read(batchProvider.notifier).logAll(hour: widget.hour);
+    // Releases the batch's photos and its corrections. The provider is
+    // auto-disposed on pop as well; this makes the release explicit at the moment
+    // the batch is over rather than a side effect of navigation.
+    if (mounted) ref.read(aiCaptureProvider.notifier).reset();
     if (mounted) Navigator.of(context).pop();
-  }
-
-  Widget _macros(double p, double c, double f, {required double size}) {
-    TextSpan span(String s, Color color) =>
-        TextSpan(text: s, style: TextStyle(color: color));
-    return Text.rich(
-      TextSpan(
-        style: TextStyle(fontSize: size, color: _dim(.5)),
-        children: [
-          span('${p.round()}P', AppColors.protein),
-          const TextSpan(text: ' '),
-          span('${c.round()}C', AppColors.carbs),
-          const TextSpan(text: ' '),
-          span('${f.round()}F', AppColors.fat),
-        ],
-      ),
-    );
   }
 
   Widget _chipStrip(List<BatchItem> batch) {
@@ -213,17 +242,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       child: batch.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text('batch is empty — tap or swipe items to add',
+              child: Text(
+                  _mode == _Mode.ai
+                      ? 'plate is empty — shoot to detect foods'
+                      : 'batch is empty — tap or swipe items to add',
                   style: TextStyle(fontSize: 10, color: _dim(.3))),
             )
           : _chips(batch),
     );
   }
 
+  /// Removes a chip. An item the detector staged also has its instance id
+  /// recorded, so the next shot's reply does not put it back on the plate the
+  /// user just took it off.
+  void _removeChip(BatchItem item) {
+    ref.read(batchProvider.notifier).remove(item);
+    final ai = item.ai;
+    if (ai != null) {
+      ref.read(aiCaptureProvider.notifier).markRemoved(ai.instanceId);
+    }
+  }
+
   Widget _chips(List<BatchItem> batch) {
     return ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       itemCount: batch.length,
       separatorBuilder: (_, _) => const SizedBox(width: 12),
       itemBuilder: (context, i) => _chip(batch[i]),
@@ -240,7 +283,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     return Dismissible(
       key: ObjectKey(item),
       direction: DismissDirection.up,
-      onDismissed: (_) => ref.read(batchProvider.notifier).remove(item),
+      onDismissed: (_) => _removeChip(item),
       background: const SizedBox.shrink(),
       child: GestureDetector(
         // Reopens the amount rather than staging a second one — the detail
@@ -288,7 +331,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               style: TextStyle(fontSize: 8.5, color: _dim(.6)),
             ),
             const SizedBox(height: 2),
-            _macros(item.protein, item.carbs, item.fat, size: 8),
+            macros(item.protein, item.carbs, item.fat, size: 8),
           ],
         ),
         ),

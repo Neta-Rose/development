@@ -13,17 +13,26 @@ USDA FoodData Central → DuckDB → LLM enrichment → `database/foods.sqlite`.
 `CLAUDE.md`; read that before touching anything under it. The two are one repo because the catalog
 is a build artifact of the pipeline, not a file anyone should be copying by hand.
 
+`server/` is a small Go service, the **one** network dependency the app has: it proxies plate photos
+to a vision model through OpenRouter and returns the foods on the plate. It has its own `README.md`.
+It exists so the OpenRouter key stays off the device and so the model id is a deployment knob rather
+than a client release.
+
 ## Commands
 
 ```bash
 flutter pub get
 flutter run --dart-define=SUPABASE_URL=… --dart-define=SUPABASE_ANON_KEY=…  # both optional
+flutter run --dart-define=PLATE_API_URL=… --dart-define=PLATE_API_TOKEN=…   # AI logging, optional
 flutter analyze
 flutter test
 flutter test test/catalog_test.dart --plain-name 'recipe roll-up'           # one test
 dart run build_runner build --delete-conflicting-outputs                   # or `watch`
 flutter build web && vercel deploy --prebuilt                               # dev-testing build
 shorebird patch android                                                     # code push
+
+cd server && go test ./... && go vet ./...   # plate detector, offline, no key needed
+cd server && OPENROUTER_API_KEY=… go run .
 
 cd generate-sqlite && uv sync && uv run marimo edit notebook.py   # rebuild the catalog
 cd generate-sqlite && uv run pytest                               # pipeline tests, offline
@@ -89,7 +98,39 @@ bug to fix upstream, not something to disambiguate in Dart.
 **`database/APP_DATABASE.md` is the schema reference** — full column lists, the query for every
 screen, and a gotchas checklist. Read it before writing SQL.
 
+### AI food logging — the one path that touches the network
+
+The search screen's third mode (`lib/features/search/{domain,presentation}/ai_*`). The user shoots
+once per thing added to the plate; `server/` asks a vision model what is on it. Everything still
+lands in SQLite through the existing `Batch` → `FoodLogRepository` path — the network is consulted
+only between the shutter and the plate, and confirming a plate needs no connection at all.
+
+- **Every shutter press resends every photo of the batch**, not just the new one. That is the design:
+  deduplication is the model's job, and a model shown one photo at a time cannot tell "the same
+  chicken thigh again" from "a second chicken thigh". The model assigns each physical item a stable
+  `instance_id` and reuses it across shots, so a thigh photographed four times comes back once with
+  `shots: [1,2,3,4]` and becomes **one** `log_entries` row. `server/normalize.go` re-enforces that
+  invariant rather than trusting it; `mergePlate` applies it to the staged list.
+- **The plate *is* the batch.** Detected items are `BatchItem`s in `batchProvider` with a non-null
+  `ai` origin, so the header totals, the chip strip and the confirm button work unchanged and one
+  code path writes the log. `AiCapture` owns only what is true of the batch: the shots, the phase,
+  and which ids the user corrected.
+- **`mergePlate` on an empty candidate list is the identity function.** That is what makes a failed
+  detection cost the shot and nothing else — the plate the user already built is never damaged.
+- A detection resolves to a real catalog row when a name similarity of ≥ 0.6 clears against
+  `CatalogRepository.searchPrimary` — the **primary** FTS pass only, since a trigram hit is the
+  lower-confidence answer by construction. Otherwise the model's own name and four macros become a
+  `custom_foods` row through `findOrCreateCustomFood`, which reuses by name where quick add
+  deliberately does not.
+- `clampPer100g` raises negative macros to 0 for the `custom_foods` CHECKs. This is the **opposite**
+  of the catalog path, where a negative `carb_g` is real USDA data — never apply it to a catalog
+  vector.
+- Shots live in memory for the life of the batch and nowhere else: not the documents directory, not
+  either database, not a log line.
+- `PLATE_API_URL` empty means the mode is hidden, same as `supabaseUrl` meaning "sync disabled".
+
 ### Invariants that break things silently
+
 
 - **Every nutrient amount in every table is per 100 g.** A real amount is always
   `grams / 100.0 * <column>`. `serving_g IS NULL` means "treat as per 100 g", not "unknown".

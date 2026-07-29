@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- AI food logging photographs the plate. No microphone and no photo
+         library: no video is recorded, and a shot is never read from or written
+         to the gallery — it lives in memory for the length of one batch. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="healthapp"
         android:name="${applicationName}"

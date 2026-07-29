@@ -8312,6 +8312,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     );
   }
 
+  Selectable<String?> customFoodByName(String name) {
+    return customSelect(
+      'SELECT id FROM custom_foods WHERE deleted = 0 AND lower(trim(name)) = lower(trim(?1)) ORDER BY updated_at DESC LIMIT 1',
+      variables: [Variable<String>(name)],
+      readsFrom: {customFoods},
+    ).map((QueryRow row) => row.readNullable<String>('id'));
+  }
+
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();

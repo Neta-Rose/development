@@ -137,6 +137,34 @@ class CatalogRepository {
     return [...await _customSearch(term, since), ...hits];
   }
 
+  /// The primary FTS pass alone, for resolving a detected food name.
+  ///
+  /// No trigram append and no custom-food prepend, and both omissions matter:
+  ///
+  /// * A trigram hit is the lower-confidence answer by construction, so letting
+  ///   one be a match candidate would let a misspelling clear the similarity
+  ///   threshold on a food the catalog does not actually carry.
+  /// * Matching against `custom_foods` would let one model-generated food be
+  ///   matched by similarity against an earlier model-generated food, quietly
+  ///   compounding one wrong guess into a permanent one.
+  ///
+  /// The rank expression is [search]'s, unchanged — including the `members`
+  /// column weight, so keep the two in sync.
+  Future<List<FoodHit>> searchPrimary(String input, {int limit = 10}) async {
+    final term = input.trim();
+    if (term.isEmpty) return const [];
+    final since =
+        localDate(DateTime.now().subtract(const Duration(days: recencyDays)));
+    return _catalogSearch(
+      'food_fts',
+      prefixQuery(term),
+      'bm25(food_fts, 10.0, 2.0, 3.0, 1.0)',
+      term,
+      since,
+      limit,
+    );
+  }
+
   // One row per merged item, not per USDA record: `rowid` in both FTS tables
   // is `merged_food_id`, so "chicken thigh" returns one result instead of the
   // 56 it used to. Both joins always resolve — the FTS tables are contentless

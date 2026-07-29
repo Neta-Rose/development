@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#f0eee9;font-family:"Helvetica Neue",Helvetica,system-ui,sans-serif;display:flex;justify-content:center;padding:40px 0}a{color:#1a1a1a}a:hover{color:#000}@keyframes caretBlink{0%,49%{opacity:1}50%,100%{opacity:0}}@keyframes scanSweep{from{top:12px}to{top:138px}}@keyframes dotPulse{0%,100%{opacity:1}50%{opacity:0.25}}@keyframes cardUp{from{transform:translateY(105%)}to{transform:translateY(0)}}</style>
+</helmet>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="height:100%;display:flex;flex-direction:column;background:#0C0E0B;color:#E6E8DF;font-family:&quot;IBM Plex Mono&quot;,monospace" data-screen-label="Food Search">
+  
+  <div style="padding:64px 14px 10px;display:flex;align-items:center;gap:10px">
+    <div onClick="{{ clearBatch }}" style="width:34px;height:34px;border-radius:17px;background:#222420;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer"><svg width="11" height="11" viewBox="0 0 11 11"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" stroke="#E6E8DF" stroke-width="1.7" stroke-linecap="round"></line><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" stroke="#E6E8DF" stroke-width="1.7" stroke-linecap="round"></line></svg></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:20px;font-weight:600;letter-spacing:-0.5px;line-height:1">{{ batchKcal }}<span style="font-size:11px;font-weight:400;color:rgba(230,232,223,0.45)"> kcal</span></div>
+      <div style="font-size:10px;margin-top:4px"><span style="color:#E5705C">{{ batchP }}P</span> <span style="color:#7FBF6A">{{ batchC }}C</span> <span style="color:#E8C95C">{{ batchF }}F</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div onClick="{{ setModeScan }}" style="{{ modeScanStyle }}"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 5V3.5A2 2 0 0 1 3.5 1.5H5"></path><path d="M11 1.5h1.5a2 2 0 0 1 2 2V5"></path><path d="M14.5 11v1.5a2 2 0 0 1-2 2H11"></path><path d="M5 14.5H3.5a2 2 0 0 1-2-2V11"></path><line x1="4" y1="8" x2="12" y2="8"></line></svg></div>
+      <div onClick="{{ setModeSearch }}" style="{{ modeSearchStyle }}"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.8" cy="6.8" r="4.8"></circle><line x1="10.5" y1="10.5" x2="14.5" y2="14.5"></line></svg></div>
+      <div onClick="{{ setModeAi }}" style="{{ modeAiStyle }}"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"></path></svg></div>
+      <div onClick="{{ setModeQuick }}" style="{{ modeQuickStyle }}"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.8 1.5 3.5 9h4l-.8 5.5L12.5 7h-4Z"></path></svg></div>
+      <div onClick="{{ logBatch }}" style="width:44px;height:40px;border-radius:10px;background:#E5A44C;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:4px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#0C0E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5,8.5 6.5,12.5 13.5,4"></polyline></svg></div>
+    </div>
+    
+  </div><sc-if value="{{ showChips }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:12px;padding:12px 16px 10px;overflow-x:auto;border-bottom:1px solid rgba(230,232,223,0.08);flex-shrink:0;min-height:74px;align-items:flex-start">
+    <sc-for list="{{ batchItems }}" as="bi" hint-placeholder-count="3">
+      <div onPointerDown="{{ bi.down }}" onPointerMove="{{ bi.move }}" onPointerUp="{{ bi.up }}" onPointerCancel="{{ bi.up }}" style="{{ bi.chipStyle }}">
+        <div style="{{ bi.xStyle }}"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#E5705C" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="3" x2="13" y2="13"></line><line x1="13" y1="3" x2="3" y2="13"></line></svg></div>
+        <div style="width:46px;height:46px;border-radius:12px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;font-size:24px;font-family:system-ui;padding-bottom:4px;box-sizing:border-box">{{ bi.icon }}</div>
+        <div style="width:64px;height:16px;border-radius:8px;background:#222420;border:1px solid rgba(230,232,223,0.18);display:flex;align-items:center;justify-content:center;font-size:8.5px;color:#E6E8DF;overflow:hidden;white-space:nowrap;font-variant-numeric:tabular-nums;box-sizing:border-box;margin-top:-13px;position:relative;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,0.4)">{{ bi.amt }}</div>
+        <div style="font-size:8.5px;color:rgba(230,232,223,0.6);max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ bi.name }}</div>
+        <div style="font-size:8px;white-space:nowrap"><span style="color:#E5705C">{{ bi.p }}P</span> <span style="color:#7FBF6A">{{ bi.c }}C</span> <span style="color:#E8C95C">{{ bi.f }}F</span></div>
+      </div>
+    </sc-for>
+    <sc-if value="{{ batchEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:10px;color:rgba(230,232,223,0.3);align-self:center;padding:4px 2px">{{ chipsEmptyLabel }}</div>
+    </sc-if>
+  </div></sc-if>
+  <sc-if value="{{ searchMode }}" hint-placeholder-val="{{ true }}">
+  <div style="flex:1;overflow-y:auto;min-height:0;scrollbar-width:none">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 4px"><span style="font-size:9.5px;letter-spacing:1.5px;color:rgba(230,232,223,0.45)">{{ resultsLabel }}</span><span style="font-size:9px;color:rgba(230,232,223,0.28)">tap portion pill to edit grams</span></div>
+    <sc-for list="{{ results }}" as="r" hint-placeholder-count="4">
+      <div onClick="{{ r.tap }}" onPointerDown="{{ r.down }}" onPointerMove="{{ r.move }}" onPointerUp="{{ r.up }}" onPointerCancel="{{ r.up }}" style="position:relative;overflow:hidden;border-bottom:1px solid rgba(230,232,223,0.07);touch-action:pan-y;cursor:grab;user-select:none">
+        <div style="{{ r.fillStyle }}"></div>
+        <div style="{{ r.leftAmtStyle }}">
+          <div style="font-size:12.5px;font-weight:600;line-height:1.15;white-space:nowrap">{{ r.amtLabel }}</div>
+          <div style="font-size:8.5px;opacity:0.75;white-space:nowrap">{{ r.amtSub }}</div>
+        </div>
+        <div style="{{ r.shiftStyle }}">
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;position:relative">
+            <div style="width:34px;font-size:24px;text-align:center;flex-shrink:0;font-family:system-ui">{{ r.icon }}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;color:#E6E8DF">{{ r.name }}</div>
+              <div style="font-size:10px;color:rgba(230,232,223,0.5);margin-top:3px">{{ r.kcalLive }} kcal · <span style="color:#E5705C">{{ r.pLive }}P</span> <span style="color:#7FBF6A">{{ r.cLive }}C</span> <span style="color:#E8C95C">{{ r.fLive }}F</span></div>
+              <div onClick="{{ r.openPortion }}" onPointerDown="{{ r.stopEv }}" onPointerUp="{{ r.stopEv }}" style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:11px;background:rgba(229,164,76,0.12);border:1px solid rgba(229,164,76,0.45);color:#E5A44C;font-size:9.5px;cursor:pointer;user-select:none;white-space:nowrap" style-hover="background:rgba(229,164,76,0.22)">
+                <span>{{ r.serve }}</span>
+                
+              </div>
+            </div>
+            <div onClick="{{ r.prepClick }}" onWheel="{{ r.prepWheel }}" onPointerDown="{{ r.prepDown }}" onPointerMove="{{ r.prepMove }}" onPointerUp="{{ r.prepUp }}" onPointerCancel="{{ r.prepUp }}" style="{{ r.prepTrackStyle }}">
+              <div style="{{ r.prepListStyle }}">
+                <sc-for list="{{ r.preps }}" as="v" hint-placeholder-count="0">
+                  <div style="{{ v.style }}">{{ v.label }}</div>
+                </sc-for>
+              </div>
+              <div style="{{ r.prepHintStyle }}">
+                <svg width="7" height="12" viewBox="0 0 7 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5,4.5 3.5,2 5.5,4.5"></polyline><polyline points="1.5,7.5 3.5,10 5.5,7.5"></polyline></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+    <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:24px 16px;font-size:11px;color:rgba(230,232,223,0.4)">no match — try fewer letters</div>
+    </sc-if>
+  </div>
+  <sc-if value="{{ portionClosed }}" hint-placeholder-val="{{ true }}">
+  <div style="margin:8px 12px;display:flex;align-items:center;gap:10px;border:1px solid #E5A44C;border-radius:9px;height:46px;padding:0 14px;background:rgba(230,232,223,0.05);flex-shrink:0">
+    <svg width="17" height="17" viewBox="0 0 17 17"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#E5A44C" stroke-width="1.8"></circle><line x1="11" y1="11" x2="15.5" y2="15.5" stroke="#E5A44C" stroke-width="1.8" stroke-linecap="round"></line></svg>
+    <span style="flex:1;display:flex;align-items:center;min-width:0;overflow:hidden;white-space:nowrap;font-size:13px">
+      <span style="color:#E6E8DF">{{ query }}</span>
+      <span style="display:inline-block;width:2px;height:16px;background:#E5A44C;animation:caretBlink 1.1s steps(1) infinite;flex-shrink:0"></span>
+      <sc-if value="{{ queryEmpty }}" hint-placeholder-val="{{ true }}"><span style="color:rgba(230,232,223,0.35);margin-left:4px">search foods…</span></sc-if>
+    </span>
+    <sc-if value="{{ queryHasText }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ clearQuery }}" style="width:20px;height:20px;border-radius:10px;background:#222420;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="8" height="8" viewBox="0 0 11 11"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line></svg></div>
+    </sc-if>
+  </div>
+  <div style="background:#12140F;border-top:1px solid rgba(230,232,223,0.1);padding:8px 5px 24px;display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+    <sc-for list="{{ kbRows }}" as="row" hint-placeholder-count="4">
+      <div style="{{ row.rowStyle }}">
+        <sc-for list="{{ row.keys }}" as="key" hint-placeholder-count="9">
+          <div onClick="{{ key.tap }}" style="{{ key.style }}">{{ key.label }}</div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ portionOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="background:#12140F;border-top:1px solid rgba(230,232,223,0.1);padding:10px 10px 24px;display:flex;flex-direction:column;gap:9px;flex-shrink:0;animation:cardUp 0.22s cubic-bezier(0.2,0.8,0.3,1)">
+
+    <div style="display:flex;align-items:center;gap:10px;padding:0 2px">
+      <div style="width:34px;height:34px;border-radius:9px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;font-size:19px;font-family:system-ui;flex-shrink:0">{{ pIcon }}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;color:#E6E8DF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pName }}</div>
+        <div style="font-size:9.5px;color:rgba(230,232,223,0.5);margin-top:3px;font-variant-numeric:tabular-nums">{{ pKcal }} kcal · <span style="color:#E5705C">{{ pP }}P</span> <span style="color:#7FBF6A">{{ pC }}C</span> <span style="color:#E8C95C">{{ pF }}F</span></div>
+      </div>
+      <div onClick="{{ closePortion }}" style="width:28px;height:28px;border-radius:14px;background:#222420;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="9" height="9" viewBox="0 0 11 11"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line></svg></div>
+    </div>
+
+    <div style="height:56px;border-radius:10px;border:1px solid #E5A44C;background:rgba(229,164,76,0.06);display:flex;align-items:center;padding:0 14px;gap:6px;box-sizing:border-box">
+      <span style="font-size:26px;font-weight:600;letter-spacing:-0.5px;line-height:1;color:#E6E8DF;font-variant-numeric:tabular-nums">{{ amtDisplay }}</span>
+      <div style="width:2px;height:24px;background:#E5A44C;animation:caretBlink 1.1s steps(1) infinite;flex-shrink:0"></div>
+      <span style="font-size:13px;color:rgba(230,232,223,0.55);margin-left:4px;overflow:hidden;white-space:nowrap">{{ unitLabel }}</span>
+      <div style="flex:1"></div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:17px;font-weight:600;color:#E5A44C;line-height:1;font-variant-numeric:tabular-nums">{{ gramLabel }}</div>
+        <div style="font-size:9px;color:rgba(230,232,223,0.4);margin-top:4px;font-variant-numeric:tabular-nums">{{ gramSub }}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;align-items:center">
+      <div onClick="{{ convertUnit }}" style="width:34px;height:32px;border-radius:16px;background:#1A1C17;border:1px solid rgba(230,232,223,0.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:rgba(230,232,223,0.65)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10V2.5"></path><polyline points="1.5,4.5 3.5,2.2 5.5,4.5"></polyline><path d="M8.5 2v7.5"></path><polyline points="6.5,7.5 8.5,9.8 10.5,7.5"></polyline></svg>
+      </div>
+      <div style="flex:1;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0">
+        <sc-for list="{{ units }}" as="u" hint-placeholder-count="6">
+          <div onClick="{{ u.tap }}" style="{{ u.style }}">{{ u.label }}</div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <sc-for list="{{ pKeys }}" as="row" hint-placeholder-count="4">
+        <div style="{{ row.rowStyle }}">
+          <sc-for list="{{ row.keys }}" as="key" hint-placeholder-count="4">
+            <div onClick="{{ key.tap }}" style="{{ key.style }}">{{ key.label }}</div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+  </sc-if>
+
+  <sc-if value="{{ quickMode }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;overflow-y:auto;min-height:0;padding:14px 14px 0;scrollbar-width:none">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:10px">
+      <span style="font-size:9.5px;letter-spacing:1.5px;color:rgba(230,232,223,0.45)">QUICK ADD</span>
+      <span style="font-size:9px;color:rgba(230,232,223,0.28)">off-database · numbers only</span>
+    </div>
+
+    <div onClick="{{ focusKcal }}" style="{{ kcalBoxStyle }}">
+      <div style="min-width:0">
+        <div style="font-size:9px;letter-spacing:1.4px;color:rgba(230,232,223,0.42)">CALORIES</div>
+        <div style="display:flex;align-items:baseline;gap:5px;margin-top:5px">
+          <span style="{{ kcalValStyle }}">{{ kcalDisplay }}</span>
+          <div style="{{ kcalCaretStyle }}"></div>
+          <span style="font-size:11px;color:rgba(230,232,223,0.4)">kcal</span>
+        </div>
+      </div>
+      <div onClick="{{ useAuto }}" style="{{ autoChipStyle }}">{{ autoLabel }}</div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <sc-for list="{{ qMacros }}" as="m" hint-placeholder-count="3">
+        <div onClick="{{ m.tap }}" style="{{ m.boxStyle }}">
+          <div style="{{ m.labelStyle }}">{{ m.label }}</div>
+          <div style="display:flex;align-items:baseline;gap:3px;margin-top:7px">
+            <span style="{{ m.valStyle }}">{{ m.val }}</span>
+            <div style="{{ m.caretStyle }}"></div>
+            <span style="font-size:10px;color:rgba(230,232,223,0.32)">g</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:stretch">
+      <div style="width:52px;height:52px;border-radius:12px;background:#1A1C17;border:1px solid rgba(230,232,223,0.1);display:flex;align-items:center;justify-content:center;font-size:26px;font-family:system-ui;flex-shrink:0">{{ qIcon }}</div>
+      <div onClick="{{ focusName }}" style="{{ nameBoxStyle }}">
+        <div style="font-size:9px;letter-spacing:1.4px;color:rgba(230,232,223,0.42)">NAME</div>
+        <div style="display:flex;align-items:center;margin-top:4px;min-width:0">
+          <span style="{{ nameValStyle }}">{{ nameDisplay }}</span>
+          <div style="{{ nameCaretStyle }}"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:9px;letter-spacing:1.4px;color:rgba(230,232,223,0.42);margin:16px 0 8px">ICON</div>
+    <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:6px;padding-bottom:14px">
+      <sc-for list="{{ qIcons }}" as="ic" hint-placeholder-count="18">
+        <div onClick="{{ ic.tap }}" style="{{ ic.style }}">{{ ic.ch }}</div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div onClick="{{ addQuick }}" style="{{ quickAddStyle }}">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="8" y1="2.5" x2="8" y2="13.5"></line><line x1="2.5" y1="8" x2="13.5" y2="8"></line></svg>
+    {{ quickAddLabel }}
+  </div>
+
+  <div style="background:#12140F;border-top:1px solid rgba(230,232,223,0.1);padding:8px 5px 24px;display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+    <sc-for list="{{ quickKeys }}" as="row" hint-placeholder-count="4">
+      <div style="{{ row.rowStyle }}">
+        <sc-for list="{{ row.keys }}" as="key" hint-placeholder-count="4">
+          <div onClick="{{ key.tap }}" style="{{ key.style }}">{{ key.label }}</div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ scanMode }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;position:relative;overflow:hidden;background:#0A0B08">
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(112deg,#181B12 0 16px,#101207 16px 32px)"></div>
+    <div style="position:absolute;inset:0;background:radial-gradient(115% 72% at 50% 34%,rgba(230,232,223,0.13),rgba(8,9,7,0.9) 78%)"></div>
+    <div style="position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:8.5px;letter-spacing:1.6px;color:rgba(230,232,223,0.22)">[ LIVE CAMERA FEED ]</div>
+
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;padding-top:52px">
+      <div style="position:relative;width:264px;height:150px;border-radius:14px;box-shadow:0 0 0 2000px rgba(8,9,7,0.55)">
+        <div style="position:absolute;top:-1px;left:-1px;width:26px;height:26px;border-top:2px solid #E5A44C;border-left:2px solid #E5A44C;border-top-left-radius:14px"></div>
+        <div style="position:absolute;top:-1px;right:-1px;width:26px;height:26px;border-top:2px solid #E5A44C;border-right:2px solid #E5A44C;border-top-right-radius:14px"></div>
+        <div style="position:absolute;bottom:-1px;left:-1px;width:26px;height:26px;border-bottom:2px solid #E5A44C;border-left:2px solid #E5A44C;border-bottom-left-radius:14px"></div>
+        <div style="position:absolute;bottom:-1px;right:-1px;width:26px;height:26px;border-bottom:2px solid #E5A44C;border-right:2px solid #E5A44C;border-bottom-right-radius:14px"></div>
+        <sc-if value="{{ scanSearching }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;left:10px;right:10px;height:2px;border-radius:1px;background:linear-gradient(90deg,rgba(229,164,76,0),#E5A44C,rgba(229,164,76,0));animation:scanSweep 2.1s ease-in-out infinite alternate"></div>
+        </sc-if>
+        <sc-if value="{{ scanFound }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:-1px;border:2px solid #7FBF6A;border-radius:14px"></div>
+        </sc-if>
+      </div>
+      <div style="{{ hintStyle }}">{{ hintText }}</div>
+    </div>
+
+    <div style="{{ statusPillStyle }}">
+      <div style="{{ statusDotStyle }}"></div>{{ statusText }}
+    </div>
+    <div onClick="{{ toggleTorch }}" style="{{ torchStyle }}">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 1.5h9l-1.6 3H5.1Z"></path><path d="M5.1 4.5h5.8l-.5 3.4-2.4 6.6-2.4-6.6Z"></path></svg>
+    </div>
+
+    <sc-if value="{{ scanSearching }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;left:0;right:0;bottom:44px;display:flex;justify-content:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:18px;border:1px solid rgba(230,232,223,0.22);background:rgba(12,14,11,0.7);font-size:10.5px;color:rgba(230,232,223,0.7);cursor:pointer">enter code manually</div>
+        <div onClick="{{ setModeSearch }}" style="display:flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:18px;border:1px solid rgba(230,232,223,0.22);background:rgba(12,14,11,0.7);font-size:10.5px;color:rgba(230,232,223,0.7);cursor:pointer">search instead</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ scanFound }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:0;right:0;bottom:0;background:#14160F;border-top:1px solid rgba(229,164,76,0.5);border-radius:16px 16px 0 0;padding:14px 14px 16px;animation:cardUp 0.26s cubic-bezier(0.2,0.8,0.3,1)">
+        <div style="display:flex;align-items:flex-start;gap:11px">
+          <div style="width:46px;height:46px;border-radius:12px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;font-size:24px;font-family:system-ui;flex-shrink:0">{{ scanIcon }}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:8.5px;letter-spacing:1.3px;color:rgba(230,232,223,0.42);text-transform:uppercase">{{ scanBrand }}</div>
+            <div style="font-size:13.5px;color:#E6E8DF;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ scanName }}</div>
+            <div style="font-size:9px;color:rgba(230,232,223,0.32);margin-top:4px;font-variant-numeric:tabular-nums">{{ scanCode }}</div>
+          </div>
+          <div onClick="{{ rescan }}" style="width:26px;height:26px;border-radius:13px;background:#222420;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="9" height="9" viewBox="0 0 11 11"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" stroke="rgba(230,232,223,0.6)" stroke-width="1.7" stroke-linecap="round"></line></svg></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:11px;border-top:1px solid rgba(230,232,223,0.08)">
+          <div>
+            <div style="font-size:19px;font-weight:600;letter-spacing:-0.4px;line-height:1;font-variant-numeric:tabular-nums">{{ scanKcal }}<span style="font-size:10px;font-weight:400;color:rgba(230,232,223,0.45)"> kcal</span></div>
+            <div style="font-size:9.5px;margin-top:5px"><span style="color:#E5705C">{{ scanP }}P</span> <span style="color:#7FBF6A">{{ scanC }}C</span> <span style="color:#E8C95C">{{ scanF }}F</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px">
+            <div onClick="{{ decQty }}" style="width:32px;height:32px;border-radius:16px;border:1px solid rgba(230,232,223,0.25);display:flex;align-items:center;justify-content:center;font-size:16px;color:#E6E8DF;cursor:pointer;user-select:none">−</div>
+            <div style="min-width:78px;text-align:center;font-size:11px;color:#E6E8DF;font-variant-numeric:tabular-nums">{{ scanQtyLabel }}<div style="font-size:9px;color:rgba(230,232,223,0.4);margin-top:2px">{{ scanGrams }}</div></div>
+            <div onClick="{{ incQty }}" style="width:32px;height:32px;border-radius:16px;border:1px solid rgba(230,232,223,0.25);display:flex;align-items:center;justify-content:center;font-size:16px;color:#E6E8DF;cursor:pointer;user-select:none">+</div>
+          </div>
+        </div>
+        <div onClick="{{ addScan }}" style="margin-top:13px;height:44px;border-radius:10px;background:#E5A44C;color:#0C0E0B;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#0C0E0B" stroke-width="2.2" stroke-linecap="round"><line x1="8" y1="2.5" x2="8" y2="13.5"></line><line x1="2.5" y1="8" x2="13.5" y2="8"></line></svg>
+          add to batch · keep scanning
+        </div>
+      </div>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ aiMode }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+
+    <div style="{{ camStyle }}">
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(112deg,#1B1E14 0 18px,#101207 18px 36px)"></div>
+      <div style="position:absolute;inset:0;background:radial-gradient(120% 78% at 50% 40%,rgba(230,232,223,0.14),rgba(8,9,7,0.92) 80%)"></div>
+      
+
+      
+      <div onClick="{{ toggleTorch }}" style="{{ torchStyle }}">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 1.5h9l-1.6 3H5.1Z"></path><path d="M5.1 4.5h5.8l-.5 3.4-2.4 6.6-2.4-6.6Z"></path></svg>
+      </div>
+
+      <sc-if value="{{ aiAnalyzing }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;background:rgba(8,9,7,0.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+          <div style="position:absolute;left:24px;right:24px;height:2px;border-radius:1px;background:linear-gradient(90deg,rgba(229,164,76,0),#E5A44C,rgba(229,164,76,0));animation:scanSweep 1.3s ease-in-out infinite alternate"></div>
+          <div style="font-size:10px;letter-spacing:1.8px;color:#E5A44C">ANALYZING PLATE</div>
+          <div style="font-size:9.5px;color:rgba(230,232,223,0.45)">{{ analyzingSub }}</div>
+        </div>
+      </sc-if>
+
+      <div style="position:absolute;left:0;right:0;bottom:0;height:88px;background:linear-gradient(180deg,rgba(8,9,7,0),rgba(8,9,7,0.82) 55%);display:flex;align-items:center;padding:0 16px">
+        <div style="flex:1;display:flex;gap:6px;align-items:center;min-width:0;overflow:hidden">
+          <div onClick="{{ resetStack }}" style="{{ resetStyle }}">reset stack</div>
+          <sc-for list="{{ shotThumbs }}" as="t" hint-placeholder-count="0">
+            
+          </sc-for>
+        </div>
+        <div onClick="{{ aiShoot }}" style="{{ shutterStyle }}">
+          <div style="{{ shutterInnerStyle }}"></div>
+        </div>
+        <div style="flex:1;display:flex;justify-content:flex-end">
+          <div onClick="{{ logPlate }}" style="{{ logPlateStyle }}">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5,8.5 6.5,12.5 13.5,4"></polyline></svg>
+            {{ logPlateLabel }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+
+    <div style="flex:1;min-height:0;overflow-y:auto;scrollbar-width:none">
+      
+      <sc-for list="{{ plateRows }}" as="p" hint-placeholder-count="0">
+        <div onPointerDown="{{ p.down }}" onPointerMove="{{ p.move }}" onPointerUp="{{ p.up }}" onPointerCancel="{{ p.up }}" style="{{ p.rowStyle }}">
+          <div style="{{ p.fillStyle }}"></div>
+          <div style="{{ p.leftAmtStyle }}">
+            <div style="font-size:12.5px;font-weight:600;line-height:1.15;white-space:nowrap">{{ p.amtLabel }}</div>
+            <div style="font-size:8.5px;opacity:0.75;white-space:nowrap">{{ p.amtSub }}</div>
+          </div>
+          <div style="{{ p.rmStyle }}">{{ p.rmLabel }}</div>
+          <div style="{{ p.shiftStyle }}">
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;position:relative">
+              <div style="width:34px;font-size:24px;text-align:center;flex-shrink:0;font-family:system-ui">{{ p.icon }}</div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:13px;color:#E6E8DF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+                  <span style="{{ p.badgeStyle }}">{{ p.badge }}</span>
+                </div>
+                <div style="font-size:10px;color:rgba(230,232,223,0.5);margin-top:3px;font-variant-numeric:tabular-nums">{{ p.kcal }} kcal · <span style="color:#E5705C">{{ p.p }}P</span> <span style="color:#7FBF6A">{{ p.c }}C</span> <span style="color:#E8C95C">{{ p.f }}F</span></div>
+                <div style="font-size:10px;color:rgba(230,232,223,0.35);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.shotsLabel }}</div>
+              </div>
+              <div onWheel="{{ p.prepWheel }}" onPointerDown="{{ p.prepDown }}" onPointerMove="{{ p.prepMove }}" onPointerUp="{{ p.prepUp }}" onPointerCancel="{{ p.prepUp }}" style="{{ p.prepTrackStyle }}">
+                <div style="{{ p.prepListStyle }}">
+                  <sc-for list="{{ p.preps }}" as="v" hint-placeholder-count="0">
+                    <div style="{{ v.style }}">{{ v.label }}</div>
+                  </sc-for>
+                </div>
+                <div style="{{ p.prepHintStyle }}">
+                  <svg width="7" height="12" viewBox="0 0 7 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5,4.5 3.5,2 5.5,4.5"></polyline><polyline points="1.5,7.5 3.5,10 5.5,7.5"></polyline></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ plateEmpty }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:22px 16px;font-size:11px;color:rgba(230,232,223,0.35);line-height:1.6">nothing on the plate yet — tap the shutter after each thing you add. shoot as many times as you like; repeats are merged, not doubled.</div>
+      </sc-if>
+    </div>
+
+  </div>
+  </sc-if>
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;482px&quot;,&quot;height&quot;:&quot;954px&quot;},&quot;initialBatch&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:4,&quot;min&quot;:0,&quot;max&quot;:12,&quot;step&quot;:1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Batch&quot;},&quot;analyzeMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1400,&quot;min&quot;:300,&quot;max&quot;:3000,&quot;step&quot;:100,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;AI logging&quot;}}">
+class Component extends DCLogic {
+  state = { batch: null, query: '', swipe: null, mode: 'search', variant: {}, scanState: 'searching', scanIdx: 0, scanQty: 1, torch: false };
+  _arm() { clearTimeout(this._t); this._t = setTimeout(() => this.setState({ scanState: 'found' }), 1900); }
+  componentWillUnmount() { clearTimeout(this._t); clearTimeout(this._ai); }
+  renderVals() {
+    const FOODS = [
+      { name: 'Duck Breast', icon: '🍗', kcal: 204, p: 33, c: 0, f: 7, serve: '1 breast (166 g)', unit: 'breast', unitG: 166, preps: [
+        { id: 'pan-seared', kcal: 204, p: 33, c: 0, f: 7, serve: '1 breast (166 g)', unit: 'breast', unitG: 166 },
+        { id: 'roasted', kcal: 232, p: 31, c: 0, f: 11, serve: '1 breast (172 g)', unit: 'breast', unitG: 172 },
+        { id: 'raw', kcal: 224, p: 30, c: 0, f: 11, serve: '1 breast (185 g)', unit: 'breast', unitG: 185 } ] },
+      { name: 'Jasmine Rice', icon: '🍚', kcal: 205, p: 4, c: 45, f: 0, serve: '1 cup cooked (158 g)', unit: 'cup', unitG: 158, preps: [
+        { id: 'boiled', kcal: 205, p: 4, c: 45, f: 0, serve: '1 cup cooked (158 g)', unit: 'cup', unitG: 158 },
+        { id: 'fried', kcal: 265, p: 5, c: 46, f: 7, serve: '1 cup fried (166 g)', unit: 'cup', unitG: 166 },
+        { id: 'dry', kcal: 342, p: 7, c: 76, f: 1, serve: '½ cup dry (93 g)', unit: '½ cup', unitG: 93 } ] },
+      { name: 'Tomato, Raw', icon: '🍅', kcal: 22, p: 1, c: 5, f: 0, serve: '1 medium (123 g)', unit: 'tomato', unitG: 123, preps: [
+        { id: 'raw', kcal: 22, p: 1, c: 5, f: 0, serve: '1 medium (123 g)', unit: 'tomato', unitG: 123 },
+        { id: 'roasted', kcal: 33, p: 1, c: 7, f: 1, serve: '1 medium (110 g)', unit: 'tomato', unitG: 110 },
+        { id: 'sun-dried', kcal: 39, p: 2, c: 8, f: 0, serve: '5 halves (15 g)', unit: 'portion', unitG: 15 } ] },
+      { name: 'Greek Yogurt 2%', icon: '🥣', kcal: 100, p: 17, c: 6, f: 3, serve: '1 cup (170 g)', unit: 'cup', unitG: 170 },
+      { name: 'Egg, Large', icon: '🥚', kcal: 72, p: 6, c: 0, f: 5, serve: '1 egg (50 g)', unit: 'egg', unitG: 50, preps: [
+        { id: 'boiled', kcal: 72, p: 6, c: 0, f: 5, serve: '1 egg (50 g)', unit: 'egg', unitG: 50 },
+        { id: 'fried', kcal: 90, p: 6, c: 0, f: 7, serve: '1 egg (54 g)', unit: 'egg', unitG: 54 },
+        { id: 'scrambled', kcal: 101, p: 7, c: 1, f: 8, serve: '1 egg (61 g)', unit: 'egg', unitG: 61 } ] },
+      { name: 'Avocado', icon: '🥑', kcal: 240, p: 3, c: 12, f: 22, serve: '1 whole (201 g)', unit: 'avocado', unitG: 201 },
+      { name: 'Banana', icon: '🍌', kcal: 105, p: 1, c: 27, f: 0, serve: '1 medium (118 g)', unit: 'banana', unitG: 118 },
+      { name: 'Sourdough', icon: '🍞', kcal: 120, p: 4, c: 24, f: 1, serve: '1 slice (50 g)', unit: 'slice', unitG: 50, preps: [
+        { id: 'plain', kcal: 120, p: 4, c: 24, f: 1, serve: '1 slice (50 g)', unit: 'slice', unitG: 50 },
+        { id: 'toasted', kcal: 118, p: 4, c: 24, f: 1, serve: '1 slice (46 g)', unit: 'slice', unitG: 46 },
+        { id: 'buttered', kcal: 194, p: 4, c: 24, f: 9, serve: '1 slice (60 g)', unit: 'slice', unitG: 60 } ] },
+      { name: 'Whey Isolate', icon: '🥤', kcal: 120, p: 27, c: 2, f: 1, serve: '1 scoop (30 g)', unit: 'scoop', unitG: 30 },
+      { name: 'Blueberries', icon: '🫐', kcal: 42, p: 1, c: 11, f: 0, serve: '½ cup (74 g)', unit: '½ cup', unitG: 74 },
+    ];
+    const seedN = Math.max(0, Math.min(12, this.props.initialBatch ?? 4));
+    const batch = this.state.batch ?? Array.from({ length: seedN }, (_, i) => FOODS[i % FOODS.length]);
+    const query = this.state.query;
+    const bsum = k => Math.round(batch.reduce((a, b) => a + b[k], 0));
+    const q = query.trim().toLowerCase();
+    const shownFoods = q ? FOODS.filter(f => f.name.toLowerCase().includes(q)) : FOODS;
+    const btnBase = { width: 30, height: 30, borderRadius: 15, border: '1px solid rgba(230,232,223,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, cursor: 'pointer', flexShrink: 0, color: '#E6E8DF' };
+    const sw = this.state.swipe;
+    const M = [0.5, 0.75, 1, 2, 3, 4];
+    const ladderFor = f => {
+      const out = [];
+      [0.08, 0.15, 0.25, 0.4, 0.55, 0.75].forEach(x => {
+        const g = Math.max(5, Math.round(x * f.unitG / 5) * 5);
+        if (g < f.unitG && (!out.length || g > out[out.length - 1].g)) out.push({ g, unit: false });
+      });
+      out.push({ g: f.unitG, unit: true });
+      return out;
+    };
+    const swSel = f => {
+      if (!sw || sw.name !== f.name || sw.dx < 18) return null;
+      const steps = ladderFor(f);
+      const step = steps[Math.min(steps.length - 1, Math.floor((sw.dx - 18) / 26))];
+      const mult = M[Math.max(0, Math.min(M.length - 1, 2 + Math.round(-sw.dy / 34)))];
+      const grams = Math.round(step.g * mult);
+      const label = step.unit
+        ? mult + ' ' + f.unit + (mult > 1 && !f.unit.startsWith('½') ? 's' : '') + ' (' + grams + ' g)'
+        : grams + ' g';
+      return { grams, factor: grams / f.unitG, label, unit: step.unit, mult };
+    };
+    const results = shownFoods.map(base => {
+      const preps = base.preps || null;
+      const vsel = (preps && this.state.variant[base.name]) || (preps ? preps[0].id : '');
+      const pv = preps ? (preps.find(x => x.id === vsel) || preps[0]) : null;
+      const pIdx = preps ? preps.findIndex(x => x.id === (pv ? pv.id : '')) : 0;
+      const f = pv ? { ...base, ...pv } : base;
+      const sel = swSel(f);
+      const mine = sw && sw.name === f.name;
+      const sc = k => Math.round(f[k] * sel.factor);
+      const shiftX = mine && sw.dx > 0 ? Math.min(18 + sw.dx * 0.35, 92) : 0;
+      const PH = 30;
+      const pn = preps ? preps.length : 1;
+      const pd = this.state.prepDrag;
+      const pDragging = !!(pd && pd.name === base.name);
+      const pdy = pDragging ? Math.max(-PH * 0.9, Math.min(PH * 0.9, pd.dy)) : 0;
+      const setPrep = i => this.setState(s => ({ variant: { ...s.variant, [base.name]: preps[Math.max(0, Math.min(pn - 1, i))].id } }));
+      const prepBtns = preps ? preps.map(p => ({
+        label: p.id,
+        style: { height: PH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, letterSpacing: '0.2px', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', color: p.id === vsel ? '#E5A44C' : 'rgba(230,232,223,0.4)', fontWeight: p.id === vsel ? 600 : 400 },
+      })) : [];
+      return { ...f, preps: prepBtns,
+        prepTrackStyle: preps
+          ? { position: 'relative', flexShrink: 0, width: 92, height: PH, overflow: 'hidden', borderRadius: 15, background: 'rgba(229,164,76,0.07)', border: '1px solid rgba(229,164,76,0.4)', boxSizing: 'border-box', cursor: 'ns-resize', touchAction: 'none' }
+          : { display: 'none' },
+        prepListStyle: { display: 'flex', flexDirection: 'column', transform: 'translateY(' + (-pIdx * PH + pdy) + 'px)', transition: pDragging ? 'none' : 'transform 0.22s cubic-bezier(0.2,0.8,0.3,1)' },
+        prepHintStyle: { position: 'absolute', right: 5, top: 0, bottom: 0, display: 'flex', alignItems: 'center', color: 'rgba(229,164,76,0.5)', pointerEvents: 'none' },
+        prepClick: e => e.stopPropagation(),
+        prepWheel: e => { if (!preps) return; if (this._pw && Date.now() - this._pw < 220) return; this._pw = Date.now(); setPrep(pIdx + (e.deltaY > 0 ? 1 : -1)); },
+        prepDown: e => { if (!preps) return; e.stopPropagation(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ prepDrag: { name: base.name, y0: e.clientY, dy: 0 } }); },
+        prepMove: e => { const s = this.state.prepDrag; if (!s || s.name !== base.name) return; e.stopPropagation(); this.setState({ prepDrag: { ...s, dy: e.clientY - s.y0 } }); },
+        prepUp: e => {
+          const s = this.state.prepDrag; if (!s || s.name !== base.name) return;
+          e.stopPropagation();
+          const d = s.dy;
+          this.setState({ prepDrag: null });
+          if (Math.abs(d) < 5) setPrep((pIdx + 1) % pn);
+          else setPrep(pIdx - Math.round(d / (PH * 0.7)));
+        },
+        kcalLive: sel ? sc('kcal') : f.kcal, pLive: sel ? sc('p') : f.p, cLive: sel ? sc('c') : f.c, fLive: sel ? sc('f') : f.f,
+        amtLabel: sel ? (sel.unit ? sel.mult + ' ' + f.unit + (sel.mult > 1 && !f.unit.startsWith('½') ? 's' : '') : sel.grams + ' g') : '',
+        amtSub: sel ? sc('kcal') + ' kcal' : '',
+        leftAmtStyle: sel
+          ? { position: 'absolute', top: 0, bottom: 0, left: 0, width: shiftX, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 1, color: '#E5A44C', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', pointerEvents: 'none' }
+          : { display: 'none' },
+        shiftStyle: { transform: 'translateX(' + shiftX + 'px)', transition: mine ? 'none' : 'transform 0.22s' },
+        fillStyle: { position: 'absolute', top: 0, bottom: 0, left: 0, width: sel ? Math.min(sw.dx, 340) : 0, background: 'linear-gradient(90deg, rgba(229,164,76,0.3), rgba(229,164,76,0.03))', pointerEvents: 'none', transition: mine ? 'none' : 'width 0.22s' },
+        down: e => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ swipe: { name: f.name, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 } }); },
+        move: e => { const s = this.state.swipe; if (!s || s.name !== f.name) return; this.setState({ swipe: { ...s, dx: e.clientX - s.x0, dy: e.clientY - s.y0 } }); },
+        up: () => {
+          const s = this.state.swipe; if (!s || s.name !== f.name) return;
+          if (sel) { this._swipedAt = Date.now(); this.setState({ batch: [...batch, { name: f.name, icon: f.icon, kcal: sc('kcal'), p: sc('p'), c: sc('c'), f: sc('f'), grams: sel.grams, units: sel.unit ? sel.mult : 0 }], swipe: null }); }
+          else this.setState({ swipe: null });
+        },
+        tap: () => {
+          if (this._swipedAt && Date.now() - this._swipedAt < 350) return;
+          const qs = new URLSearchParams({ name: f.name, icon: f.icon, kcal: f.kcal, p: f.p, c: f.c, f: f.f, unit: f.unit || 'serving', unitG: f.unitG || 100, source: pfv ? 'USDA · ' + pfv.id.toUpperCase() : 'USDA · VERIFIED' });
+          location.href = 'Food Detail.dc.html?' + qs.toString();
+        },
+        stopEv: e => { e.stopPropagation(); },
+        openPortion: e => { e.stopPropagation(); e.preventDefault(); this.setState({ portion: { name: base.name, amt: '1', unit: 'native' } }); } };
+    });
+    const grouped = [];
+    batch.forEach(b => {
+      const f = FOODS.find(x => x.name === b.name);
+      const units = b.units !== undefined ? b.units : 1;
+      const grams = b.grams !== undefined ? b.grams : (f ? f.unitG : 0);
+      const g = grouped.find(x => x.name === b.name);
+      if (g) { g.kcal += b.kcal; g.p += b.p; g.c += b.c; g.f += b.f; g.grams += grams; g.units = (g.units === null || !units) ? null : g.units + units; }
+      else grouped.push({ name: b.name, icon: b.icon, unit: b.unit || (f ? f.unit : ''), kcal: b.kcal, p: b.p, c: b.c, f: b.f, grams, units: units || null });
+    });
+    const cs = this.state.chipSwipe;
+    const batchItems = grouped.map(g => {
+      const amt = g.units
+        ? g.units + ' ' + g.unit + (g.units > 1 && !g.unit.startsWith('½') ? 's' : '')
+        : g.grams + ' g';
+      const mine = cs && cs.name === g.name;
+      const lift = mine && cs.dy < 0 ? Math.max(cs.dy * 0.55, -26) : 0;
+      const prog = mine ? Math.max(0, Math.min(1, (-cs.dy - 10) / 32)) : 0;
+      return { name: g.name, icon: g.icon, amt, p: Math.round(g.p), c: Math.round(g.c), f: Math.round(g.f),
+        chipStyle: { width: 64, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, position: 'relative', touchAction: 'none', cursor: 'grab', userSelect: 'none', transform: 'translateY(' + lift + 'px)', transition: mine ? 'none' : 'transform 0.22s' },
+        xStyle: { position: 'absolute', top: 0, left: 9, width: 46, height: 46, borderRadius: 12, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerEvents: 'none', background: 'rgba(20,10,8,' + (0.9 * prog) + ')', border: '1px solid rgba(229,112,92,' + (0.7 * prog) + ')', opacity: prog, transition: mine ? 'none' : 'opacity 0.22s' },
+        down: e => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ chipSwipe: { name: g.name, y0: e.clientY, dy: 0 } }); },
+        move: e => { const s = this.state.chipSwipe; if (!s || s.name !== g.name) return; this.setState({ chipSwipe: { ...s, dy: e.clientY - s.y0 } }); },
+        up: () => {
+          const s = this.state.chipSwipe; if (!s || s.name !== g.name) return;
+          if (s.dy < -40) this.setState({ batch: batch.filter(b => b.name !== g.name), chipSwipe: null });
+          else this.setState({ chipSwipe: null });
+        } };
+    });
+    const SCANS = [
+      { icon: '🥤', brand: 'Torrent Nutrition', name: 'Whey Isolate, Vanilla', code: '8 412755 093021', serve: 'scoop', g: 30, kcal: 120, p: 27, c: 2, f: 1 },
+      { icon: '🥣', brand: 'Northfield Dairy', name: 'Greek Yogurt 2%', code: '7 290011 664312', serve: 'pot', g: 170, kcal: 100, p: 17, c: 6, f: 3 },
+      { icon: '🍞', brand: 'Mill & Ash Bakery', name: 'Sourdough Loaf', code: '5 060337 502733', serve: 'slice', g: 50, kcal: 120, p: 4, c: 24, f: 1 },
+      { icon: '🫘', brand: 'Casa Verde', name: 'Black Beans, No Salt', code: '0 041331 023117', serve: 'can', g: 240, kcal: 190, p: 12, c: 34, f: 1 },
+    ];
+    const SC = SCANS[this.state.scanIdx % SCANS.length];
+    const qty = this.state.scanQty;
+    const sq = k => Math.round(SC[k] * qty);
+    const mode = this.state.mode;
+    const found = mode === 'scan' && this.state.scanState === 'found';
+    const searching = mode === 'scan' && !found;
+    const pillBase = { position: 'absolute', top: 14, left: 16, display: 'flex', alignItems: 'center', gap: 7, height: 26, padding: '0 11px', borderRadius: 13, fontSize: 9, letterSpacing: '1.3px' };
+    const scanVals = {
+      scanMode: mode === 'scan', searchMode: mode !== 'scan', scanSearching: searching, scanFound: found,
+      scanIcon: SC.icon, scanBrand: SC.brand, scanName: SC.name, scanCode: SC.code,
+      scanKcal: sq('kcal'), scanP: sq('p'), scanC: sq('c'), scanF: sq('f'),
+      scanQtyLabel: qty + ' ' + SC.serve + (qty > 1 ? 's' : ''),
+      scanGrams: Math.round(SC.g * qty) + ' g',
+      statusText: found ? 'MATCH FOUND' : 'SCANNING',
+      statusPillStyle: found
+        ? { ...pillBase, background: 'rgba(127,191,106,0.14)', border: '1px solid rgba(127,191,106,0.45)', color: '#7FBF6A' }
+        : { ...pillBase, background: 'rgba(12,14,11,0.72)', border: '1px solid rgba(230,232,223,0.16)', color: 'rgba(230,232,223,0.7)' },
+      statusDotStyle: { width: 5, height: 5, borderRadius: 3, background: found ? '#7FBF6A' : '#E5A44C', animation: found ? 'none' : 'dotPulse 1.1s ease-in-out infinite' },
+      hintText: found ? 'confirm the portion below' : 'center the barcode in the frame',
+      hintStyle: { marginTop: 18, fontSize: 11, color: found ? 'rgba(127,191,106,0.85)' : 'rgba(230,232,223,0.5)' },
+      torchStyle: { position: 'absolute', top: 10, right: 14, width: 34, height: 34, borderRadius: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: this.state.torch ? '#E5A44C' : 'rgba(12,14,11,0.72)', border: '1px solid ' + (this.state.torch ? '#E5A44C' : 'rgba(230,232,223,0.16)'), color: this.state.torch ? '#0C0E0B' : 'rgba(230,232,223,0.7)' },
+      toggleTorch: () => this.setState(s => ({ torch: !s.torch })),
+      incQty: () => this.setState(s => ({ scanQty: Math.min(6, s.scanQty + 1) })),
+      decQty: () => this.setState(s => ({ scanQty: Math.max(1, s.scanQty - 1) })),
+      rescan: () => { this.setState(s => ({ scanState: 'searching', scanIdx: s.scanIdx + 1, scanQty: 1 })); this._arm(); },
+      addScan: () => {
+        this.setState(s => ({
+          batch: [...batch, { name: SC.name, icon: SC.icon, kcal: sq('kcal'), p: sq('p'), c: sq('c'), f: sq('f'), grams: Math.round(SC.g * qty), units: 0 }],
+          scanState: 'searching', scanIdx: s.scanIdx + 1, scanQty: 1,
+        }));
+        this._arm();
+      },
+    };
+    const keyBase = { height: 42, borderRadius: 6, background: '#222420', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14.5, cursor: 'pointer', userSelect: 'none', color: '#E6E8DF', boxShadow: '0 1px 0 rgba(0,0,0,0.4)' };
+    const K = (label, flex, tap, over) => ({ label, tap, style: { ...keyBase, flex, ...(over || {}) } });
+    const noop = () => {};
+    const letters = (type, back, actLabel, act) => [
+      { rowStyle: { display: 'flex', gap: 5 }, keys: 'qwertyuiop'.split('').map(c => K(c.toUpperCase(), 1, type(c))) },
+      { rowStyle: { display: 'flex', gap: 5, padding: '0 19px' }, keys: 'asdfghjkl'.split('').map(c => K(c.toUpperCase(), 1, type(c))) },
+      { rowStyle: { display: 'flex', gap: 5 }, keys: [K('⇧', 1.4, noop, { background: '#1A1C17', color: 'rgba(230,232,223,0.45)' }), ...'zxcvbnm'.split('').map(c => K(c.toUpperCase(), 1, type(c))), K('⌫', 1.4, back, { background: '#1A1C17', color: 'rgba(230,232,223,0.65)' })] },
+      { rowStyle: { display: 'flex', gap: 5 }, keys: [K('123', 1.6, noop, { background: '#1A1C17', fontSize: 11, color: 'rgba(230,232,223,0.45)' }), K('space', 5, type(' '), { fontSize: 11 }), K(actLabel, 2, act, { background: '#E5A44C', color: '#0C0E0B', fontSize: 11, fontWeight: 600 })] },
+    ];
+    const type = ch => () => this.setState(s => ({ query: s.query + ch }));
+    const kbRows = letters(type, () => this.setState(s => ({ query: s.query.slice(0, -1) })), 'search', noop);
+
+    // ---- portion keyboard ----
+    const CUPG = { 'Duck Breast': 140, 'Jasmine Rice': 158, 'Tomato, Raw': 180, 'Greek Yogurt 2%': 245, 'Egg, Large': 243, 'Avocado': 150, 'Banana': 150, 'Sourdough': 45, 'Whey Isolate': 120, 'Blueberries': 148 };
+    const poSt = this.state.portion;
+    const portionVals = (() => {
+      if (!poSt) return { portionOpen: false, portionClosed: true, units: [], pKeys: [] };
+      const pb = FOODS.find(x => x.name === poSt.name) || FOODS[0];
+      const pp = pb.preps || null;
+      const pvsel = (pp && this.state.variant[pb.name]) || (pp ? pp[0].id : '');
+      const pfv = pp ? (pp.find(x => x.id === pvsel) || pp[0]) : null;
+      const pf = pfv ? { ...pb, ...pfv } : pb;
+      const cupG = CUPG[pb.name] || 150;
+      const defs = [];
+      const pushU = d => { if (!defs.some(x => x.label === d.label)) defs.push(d); };
+      if (pf.unit && pf.unit !== 'g') pushU({ id: 'native', label: pf.unit, g: pf.unitG });
+      pushU({ id: 'g', label: 'g', g: 1 });
+      pushU({ id: 'oz', label: 'oz', g: 28.35 });
+      pushU({ id: 'cup', label: 'cup', g: cupG });
+      pushU({ id: 'tbsp', label: 'tbsp', g: cupG / 16 });
+      pushU({ id: 'tsp', label: 'tsp', g: cupG / 48 });
+      const uid = defs.some(d => d.id === poSt.unit) ? poSt.unit : defs[0].id;
+      const ud = defs.find(d => d.id === uid);
+      const parseAmt = s => (s || '').trim().split(/\s+/).reduce((t, part) => {
+        if (part.indexOf('/') >= 0) { const ab = part.split('/'); return t + (parseFloat(ab[0]) || 0) / (parseFloat(ab[1]) || 1); }
+        return t + (parseFloat(part) || 0);
+      }, 0);
+      const nAmt = parseAmt(poSt.amt);
+      const grams = nAmt * ud.g;
+      const fac = pf.unitG ? grams / pf.unitG : 0;
+      const sc2 = k => Math.round(pf[k] * fac);
+      const fmtN = v => v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+      const setAmt = v => this.setState(s => ({ portion: { ...s.portion, amt: v } }));
+      const chipBase = { height: 32, padding: '0 14px', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11.5, cursor: 'pointer', flexShrink: 0, userSelect: 'none', whiteSpace: 'nowrap', boxSizing: 'border-box' };
+      const commit = () => {
+        if (grams <= 0) return;
+        this.setState({ portion: null, batch: [...batch, { name: pf.name, icon: pf.icon, kcal: sc2('kcal'), p: sc2('p'), c: sc2('c'), f: sc2('f'), grams: Math.round(grams), units: uid === 'native' ? nAmt : 0, unit: pf.unit }] });
+      };
+      const dig = ch => K(ch, 1, () => { if ((poSt.amt || '').length < 7) setAmt((poSt.amt || '') + ch); }, { fontSize: 17 });
+      const side = (l, tap, over) => K(l, 1, tap, { background: '#1A1C17', fontSize: 12, color: 'rgba(230,232,223,0.6)', ...(over || {}) });
+      const prow = keys => ({ rowStyle: { display: 'flex', gap: 6 }, keys });
+      return {
+        portionOpen: true, portionClosed: false,
+        pIcon: pf.icon, pName: pf.name + (pfv ? ' · ' + pfv.id : ''),
+        pKcal: sc2('kcal'), pP: sc2('p'), pC: sc2('c'), pF: sc2('f'),
+        amtDisplay: poSt.amt || '', unitLabel: ud.label,
+        gramLabel: (grams >= 100 ? Math.round(grams) : Math.round(grams * 10) / 10) + ' g',
+        gramSub: sc2('kcal') + ' kcal',
+        units: defs.map(d => ({
+          label: d.label,
+          tap: () => this.setState(s => ({ portion: { ...s.portion, unit: d.id } })),
+          style: d.id === uid
+            ? { ...chipBase, background: '#E5A44C', color: '#0C0E0B', fontWeight: 600 }
+            : { ...chipBase, background: '#222420', color: 'rgba(230,232,223,0.6)' },
+        })),
+        convertUnit: () => { const i = defs.findIndex(d => d.id === uid); const nx = defs[(i + 1) % defs.length]; this.setState(s => ({ portion: { ...s.portion, unit: nx.id, amt: fmtN(grams / nx.g) } })); },
+        closePortion: () => this.setState({ portion: null }),
+        pKeys: [
+          prow([dig('1'), dig('2'), dig('3'), side('/', () => setAmt((poSt.amt || '') + '/'), { fontSize: 15 })]),
+          prow([dig('4'), dig('5'), dig('6'), side('␣', () => setAmt((poSt.amt || '') + ' '), { fontSize: 15 })]),
+          prow([dig('7'), dig('8'), dig('9'), side('⌫', () => setAmt((poSt.amt || '').slice(0, -1)), { fontSize: 14 })]),
+          prow([dig('.'), dig('0'), side('log all', () => this.setState({ portion: null, batch: [], query: '' }), { fontSize: 10.5 }), K('add', 1, commit, { background: grams > 0 ? '#E5A44C' : 'rgba(230,232,223,0.08)', color: grams > 0 ? '#0C0E0B' : 'rgba(230,232,223,0.3)', fontSize: 12, fontWeight: 600 })]),
+        ],
+      };
+    })();
+
+    // ---- quick add ----
+    const QD = { kcal: '', p: '', c: '', f: '', name: '', icon: '🍽️' };
+    const Q = { ...QD, ...(this.state.quick || {}) };
+    const qf = this.state.qField || 'kcal';
+    const num = v => parseFloat(v) || 0;
+    const setQ = (k, v) => this.setState(s => ({ quick: { ...QD, ...(s.quick || {}), [k]: v } }));
+    const autoKcal = Math.round(num(Q.p) * 4 + num(Q.c) * 4 + num(Q.f) * 9);
+    const hasMacros = !!(Q.p || Q.c || Q.f);
+    const kcalEff = Q.kcal !== '' ? Math.round(num(Q.kcal)) : autoKcal;
+    const fieldBox = on => ({ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '10px 12px', borderRadius: 11, background: on ? 'rgba(229,164,76,0.07)' : '#14160F', border: '1px solid ' + (on ? '#E5A44C' : 'rgba(230,232,223,0.1)'), cursor: 'pointer', userSelect: 'none' });
+    const caret = on => on
+      ? { width: 2, height: 15, background: '#E5A44C', animation: 'caretBlink 1.1s steps(1) infinite', flexShrink: 0 }
+      : { display: 'none' };
+    const cycle = ['kcal', 'p', 'c', 'f', 'name'];
+    const nextField = () => this.setState(s => ({ qField: cycle[(cycle.indexOf(s.qField) + 1) % cycle.length] }));
+    const ICONS = ['🍽️', '🍗', '🥩', '🍳', '🥗', '🍚', '🍜', '🥪', '🍕', '🍔', '🌮', '🥞', '🧀', '🥜', '🍎', '🍫', '🥤', '☕'];
+    const canAdd = kcalEff > 0 || !!Q.name;
+    const addQuick = () => {
+      if (!canAdd) return;
+      this.setState(s => ({
+        batch: [...batch, { name: Q.name || 'Quick entry', icon: Q.icon, kcal: kcalEff, p: Math.round(num(Q.p)), c: Math.round(num(Q.c)), f: Math.round(num(Q.f)), grams: 0, units: 1, unit: 'serving' }],
+        quick: { ...QD }, qField: 'kcal',
+      }));
+    };
+    const quickVals = {
+      qIcon: Q.icon,
+      kcalBoxStyle: { ...fieldBox(qf === 'kcal'), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 14px' },
+      kcalValStyle: { fontSize: 30, fontWeight: 600, letterSpacing: '-1px', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: Q.kcal === '' && !hasMacros ? 'rgba(230,232,223,0.25)' : (Q.kcal === '' ? 'rgba(229,164,76,0.85)' : '#E6E8DF') },
+      kcalDisplay: Q.kcal !== '' ? Q.kcal : String(autoKcal),
+      kcalCaretStyle: { ...caret(qf === 'kcal'), height: 26 },
+      autoLabel: Q.kcal === '' ? '4·4·9 auto' : 'use ' + autoKcal,
+      autoChipStyle: hasMacros
+        ? { flexShrink: 0, height: 26, padding: '0 10px', borderRadius: 13, display: 'flex', alignItems: 'center', fontSize: 9.5, letterSpacing: '0.5px', border: '1px solid rgba(229,164,76,0.45)', color: '#E5A44C', background: Q.kcal === '' ? 'rgba(229,164,76,0.12)' : 'transparent', cursor: 'pointer' }
+        : { display: 'none' },
+      useAuto: e => { e.stopPropagation(); setQ('kcal', ''); this.setState({ qField: 'p' }); },
+      focusKcal: () => this.setState({ qField: 'kcal' }),
+      focusName: () => this.setState({ qField: 'name' }),
+      qMacros: [['p', 'PROTEIN', '#E5705C'], ['c', 'CARBS', '#7FBF6A'], ['f', 'FAT', '#E8C95C']].map(([k, label, col]) => ({
+        label, tap: () => this.setState({ qField: k }),
+        boxStyle: fieldBox(qf === k),
+        labelStyle: { fontSize: 8.5, letterSpacing: '1.2px', color: col },
+        val: Q[k] === '' ? '0' : Q[k],
+        valStyle: { fontSize: 20, fontWeight: 600, letterSpacing: '-0.5px', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: Q[k] === '' ? 'rgba(230,232,223,0.25)' : '#E6E8DF' },
+        caretStyle: caret(qf === k),
+      })),
+      nameBoxStyle: { ...fieldBox(qf === 'name'), display: 'flex', flexDirection: 'column', justifyContent: 'center' },
+      nameDisplay: Q.name || (qf === 'name' ? '' : 'tap to name it'),
+      nameValStyle: { fontSize: 13.5, color: Q.name ? '#E6E8DF' : 'rgba(230,232,223,0.28)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      nameCaretStyle: { ...caret(qf === 'name'), marginLeft: 2 },
+      qIcons: ICONS.map(ch => ({ ch,
+        tap: () => setQ('icon', ch),
+        style: { height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontFamily: 'system-ui', cursor: 'pointer', boxSizing: 'border-box', background: ch === Q.icon ? 'rgba(229,164,76,0.16)' : '#14160F', border: '1px solid ' + (ch === Q.icon ? '#E5A44C' : 'rgba(230,232,223,0.08)') } })),
+      addQuick,
+      quickAddLabel: canAdd ? 'add to batch · ' + kcalEff + ' kcal' : 'enter calories or a name',
+      quickAddStyle: { margin: '8px 12px', height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, flexShrink: 0, cursor: canAdd ? 'pointer' : 'default', background: canAdd ? '#E5A44C' : 'rgba(230,232,223,0.06)', color: canAdd ? '#0C0E0B' : 'rgba(230,232,223,0.3)' },
+      quickKeys: qf === 'name'
+        ? letters(ch => () => setQ('name', Q.name + ch), () => setQ('name', Q.name.slice(0, -1)), 'add', addQuick)
+        : (() => {
+            const dig = d => K(d, 1, () => setQ(qf, (Q[qf] + d).replace(/^0+(?=\d)/, '').slice(0, 5)), { fontSize: 17 });
+            const side = (l, tap, over) => K(l, 1, tap, { background: '#1A1C17', fontSize: 11, color: 'rgba(230,232,223,0.6)', ...(over || {}) });
+            const row = keys => ({ rowStyle: { display: 'flex', gap: 5 }, keys });
+            return [
+              row([...'123'].map(dig).concat(side('⌫', () => setQ(qf, Q[qf].slice(0, -1)), { fontSize: 14 }))),
+              row([...'456'].map(dig).concat(side('next', nextField))),
+              row([...'789'].map(dig).concat(side('clr', () => setQ(qf, '')))),
+              row([dig('.'), dig('0'), dig('00'), K('add', 1, addQuick, { background: '#E5A44C', color: '#0C0E0B', fontSize: 11, fontWeight: 600 })]),
+            ];
+          })(),
+    };
+    // ---- AI logging (stacking mode) ----
+    const AIC = {
+      chicken: { name: 'Chicken Thigh', short: 'Chicken', icon: '🍗', per: { kcal: 209, p: 26, c: 0, f: 11 }, g: 140, step: 10, preps: [
+        { id: 'grilled', per: { kcal: 209, p: 26, c: 0, f: 11 } },
+        { id: 'roasted', per: { kcal: 232, p: 25, c: 0, f: 14 } },
+        { id: 'fried', per: { kcal: 280, p: 24, c: 3, f: 19 } } ] },
+      greens: { name: 'Mixed Leaf Salad', short: 'Salad', icon: '🥗', per: { kcal: 20, p: 2, c: 3, f: 0 }, g: 85, step: 5, preps: [
+        { id: 'raw', per: { kcal: 20, p: 2, c: 3, f: 0 } },
+        { id: 'dressed', per: { kcal: 96, p: 2, c: 4, f: 9 } } ] },
+      tomato: { name: 'Cherry Tomatoes', short: 'Tomatoes', icon: '🍅', per: { kcal: 18, p: 1, c: 4, f: 0 }, g: 60, step: 5, preps: [
+        { id: 'raw', per: { kcal: 18, p: 1, c: 4, f: 0 } },
+        { id: 'roasted', per: { kcal: 33, p: 1, c: 7, f: 1 } } ] },
+      oil: { name: 'Olive Oil', short: 'Olive oil', icon: '🫒', per: { kcal: 884, p: 0, c: 0, f: 100 }, g: 10, step: 2 },
+      bread: { name: 'Sourdough Slice', short: 'Sourdough', icon: '🍞', per: { kcal: 250, p: 9, c: 48, f: 2 }, g: 50, step: 5, preps: [
+        { id: 'plain', per: { kcal: 250, p: 9, c: 48, f: 2 } },
+        { id: 'toasted', per: { kcal: 265, p: 10, c: 51, f: 2 } },
+        { id: 'buttered', per: { kcal: 395, p: 8, c: 44, f: 21 } } ] },
+      feta: { name: 'Feta Crumble', short: 'Feta', icon: '🧀', per: { kcal: 264, p: 14, c: 4, f: 21 }, g: 30, step: 5 },
+    };
+    const SHOTS = [
+      [{ k: 'chicken', conf: 96, box: [17, 30, 46, 36] }],
+      [{ k: 'chicken', conf: 93, box: [12, 22, 42, 30] }, { k: 'tomato', conf: 84, box: [62, 20, 22, 14] }, { k: 'greens', conf: 90, box: [50, 46, 38, 28] }],
+      [{ k: 'chicken', conf: 91, box: [10, 20, 40, 28] }, { k: 'oil', conf: 71, box: [58, 16, 28, 10] }, { k: 'greens', conf: 88, box: [50, 44, 38, 30] }, { k: 'bread', conf: 95, box: [13, 63, 34, 22] }],
+      [{ k: 'chicken', conf: 90, box: [10, 20, 38, 26] }, { k: 'greens', conf: 87, box: [50, 42, 38, 30] }, { k: 'bread', conf: 94, box: [12, 62, 34, 22] }, { k: 'feta', conf: 82, box: [60, 16, 24, 13] }],
+    ];
+    const aiMode = mode === 'ai';
+    const plate = this.state.plate || [];
+    const shotN = this.state.aiShot || 0;
+    const phase = this.state.aiPhase || 'live';
+    const last = this.state.aiLast;
+    const analyzing = aiMode && phase === 'analyzing';
+    const showConf = this.props.showConfidence ?? true;
+    const perOf = p => { const c = AIC[p.k]; if (!c.preps) return c.per; return (c.preps.find(x => x.id === (this.state.platePrep || {})[p.k]) || c.preps[0]).per; };
+    const mac = (p, k) => Math.round(perOf(p)[k] * p.g / 100);
+    const plateKcal = plate.reduce((a, p) => a + mac(p, 'kcal'), 0);
+    const setPlate = fn => this.setState(s => ({ plate: fn(s.plate || []) }));
+    const shoot = () => {
+      if (analyzing) return;
+      const n = shotN + 1;
+      clearTimeout(this._ai);
+      this.setState({ aiPhase: 'analyzing', aiShot: n, aiLast: null });
+      this._ai = setTimeout(() => {
+        const dets = SHOTS[n - 1] || [];
+        this.setState(s => {
+          const pl = [...(s.plate || [])];
+          let nw = 0, dup = 0;
+          dets.forEach(d => {
+            const i = pl.findIndex(x => x.k === d.k);
+            if (i >= 0) { pl[i] = { ...pl[i], shots: [...pl[i].shots, n] }; dup++; }
+            else { pl.push({ k: d.k, g: AIC[d.k].g, shots: [n] }); nw++; }
+          });
+          return { plate: pl, aiPhase: 'result', aiLast: { n, nw, dup } };
+        });
+      }, Math.max(200, this.props.analyzeMs ?? 1400));
+    };
+    const detList = phase === 'result' ? (SHOTS[shotN - 1] || []) : [];
+    const aiVals = {
+      aiMode, showChips: true, plateEmpty: !plate.length,
+      plateChips: plate.map((p, i) => {
+        const c = AIC[p.k];
+        const mine = cs && cs.name === p.k;
+        const lift = mine && cs.dy < 0 ? Math.max(cs.dy * 0.55, -26) : 0;
+        const prog = mine ? Math.max(0, Math.min(1, (-cs.dy - 10) / 32)) : 0;
+        return { name: c.short, icon: c.icon, amt: p.g + ' g', p: mac(p, 'p'), c: mac(p, 'c'), f: mac(p, 'f'),
+          chipStyle: { width: 64, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, position: 'relative', touchAction: 'none', cursor: 'grab', userSelect: 'none', transform: 'translateY(' + lift + 'px)', transition: mine ? 'none' : 'transform 0.22s' },
+          xStyle: { position: 'absolute', top: 0, left: 9, width: 46, height: 46, borderRadius: 12, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerEvents: 'none', background: 'rgba(20,10,8,' + (0.9 * prog) + ')', border: '1px solid rgba(229,112,92,' + (0.7 * prog) + ')', opacity: prog, transition: mine ? 'none' : 'opacity 0.22s' },
+          down: e => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ chipSwipe: { name: p.k, y0: e.clientY, dy: 0 } }); },
+          move: e => { const s = this.state.chipSwipe; if (!s || s.name !== p.k) return; this.setState({ chipSwipe: { ...s, dy: e.clientY - s.y0 } }); },
+          up: () => {
+            const s = this.state.chipSwipe; if (!s || s.name !== p.k) return;
+            this.setState({ chipSwipe: null });
+            if (s.dy < -40) setPlate(pl => pl.filter((_, j) => j !== i));
+          } };
+      }),
+      camStyle: { position: 'relative', height: 396, flexShrink: 0, overflow: 'hidden', background: '#0A0B08', filter: phase === 'result' ? 'saturate(0.85)' : 'none' },
+      camPlaceholder: phase === 'live' ? '[ LIVE CAMERA FEED ]' : '[ CAPTURED FRAME · SHOT ' + shotN + ' ]',
+      stackLabel: shotN ? 'STACKING · SHOT ' + shotN : 'STACKING MODE',
+      aiDotStyle: { width: 5, height: 5, borderRadius: 3, background: '#E5A44C', animation: analyzing ? 'dotPulse 0.7s ease-in-out infinite' : 'none' },
+      aiAnalyzing: analyzing,
+      analyzingSub: shotN > 1 ? 'comparing with ' + (shotN - 1) + ' earlier shot' + (shotN > 2 ? 's' : '') : 'detecting foods and portions',
+      shotThumbs: Array.from({ length: Math.min(shotN, 5) }, (_, i) => {
+        const n = shotN <= 5 ? i + 1 : shotN - 4 + i;
+        return { n, style: { width: 30, height: 30, borderRadius: 7, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontVariantNumeric: 'tabular-nums', background: 'repeating-linear-gradient(112deg,#23261A 0 5px,#14170E 5px 10px)', border: '1px solid ' + (n === shotN ? '#E5A44C' : 'rgba(230,232,223,0.16)'), color: n === shotN ? '#E5A44C' : 'rgba(230,232,223,0.45)' } };
+      }),
+      aiShoot: shoot,
+      shutterStyle: { width: 62, height: 62, borderRadius: 31, border: '2px solid rgba(230,232,223,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: analyzing ? 'default' : 'pointer', flexShrink: 0, opacity: analyzing ? 0.45 : 1 },
+      shutterInnerStyle: { width: 48, height: 48, borderRadius: 24, background: '#E5A44C', transition: 'transform 0.12s', transform: analyzing ? 'scale(0.82)' : 'scale(1)' },
+      resetStyle: { height: 36, padding: '0 13px', borderRadius: 18, border: '1px solid rgba(230,232,223,0.28)', background: 'rgba(8,9,7,0.55)', color: 'rgba(230,232,223,0.72)', fontSize: 11.5, fontWeight: 600, display: shotN ? 'flex' : 'none', alignItems: 'center', cursor: 'pointer', flexShrink: 0 },
+      resetStack: () => { clearTimeout(this._ai); this.setState({ plate: [], aiShot: 0, aiPhase: 'live', aiLast: null }); },
+      reportStyle: { display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', height: 30, flexShrink: 0, borderBottom: '1px solid rgba(230,232,223,0.07)', background: last ? 'rgba(229,164,76,0.05)' : 'transparent' },
+      reportNew: last ? (last.nw ? '+' + last.nw + ' new' : 'no new foods') : 'shot 1 starts the stack',
+      reportNewStyle: { fontSize: 10, color: last && last.nw ? '#E5A44C' : 'rgba(230,232,223,0.4)' },
+      reportDup: last && last.dup ? '· ' + last.dup + ' already on the plate, merged' : '',
+      reportDupStyle: last && last.dup ? { fontSize: 10, color: '#7FBF6A' } : { display: 'none' },
+      reportHint: last ? 'keep stacking' : 'add food, shoot, repeat',
+      plateLabel: 'ON THE PLATE · ' + plate.length + (plate.length === 1 ? ' ITEM' : ' ITEMS'),
+      plateRows: plate.map((p, i) => {
+        const c = AIC[p.k];
+        const fresh = last && p.shots[0] === last.n;
+        const ps = this.state.plateSwipe;
+        const mine = !!(ps && ps.i === i);
+        const steps = ladderFor({ unitG: c.g });
+        let sel = null;
+        if (mine && ps.dx >= 18) {
+          const st = steps[Math.min(steps.length - 1, Math.floor((ps.dx - 18) / 26))];
+          const mult = M[Math.max(0, Math.min(M.length - 1, 2 + Math.round(-ps.dy / 34)))];
+          sel = { grams: Math.max(c.step, Math.round(st.g * mult / c.step) * c.step) };
+        }
+        const removing = mine && ps.dx < -46;
+        const gEff = sel ? sel.grams : p.g;
+        const pper = perOf(p);
+        const macAt = k => Math.round(pper[k] * gEff / 100);
+        const shiftX = mine ? (ps.dx > 0 ? Math.min(18 + ps.dx * 0.35, 92) : Math.max(ps.dx * 0.5, -84)) : 0;
+        const preps = c.preps || null;
+        const PH2 = 30;
+        const pn = preps ? preps.length : 1;
+        const vsel = preps ? ((this.state.platePrep || {})[p.k] && preps.some(x => x.id === this.state.platePrep[p.k]) ? this.state.platePrep[p.k] : preps[0].id) : '';
+        const pIdx = preps ? preps.findIndex(x => x.id === vsel) : 0;
+        const pd2 = this.state.platePrepDrag;
+        const pDragging = !!(pd2 && pd2.k === p.k);
+        const pdy = pDragging ? Math.max(-PH2 * 0.9, Math.min(PH2 * 0.9, pd2.dy)) : 0;
+        const setPrep = n => this.setState(s => ({ platePrep: { ...(s.platePrep || {}), [p.k]: preps[Math.max(0, Math.min(pn - 1, n))].id } }));
+        return {
+          name: c.name, icon: c.icon, amt: gEff + ' g',
+          kcal: macAt('kcal'), p: macAt('p'), c: macAt('c'), f: macAt('f'),
+          preps: preps ? preps.map(x => ({ label: x.id, style: { height: PH2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, letterSpacing: '0.2px', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', color: x.id === vsel ? '#E5A44C' : 'rgba(230,232,223,0.4)', fontWeight: x.id === vsel ? 600 : 400 } })) : [],
+          prepTrackStyle: preps
+            ? { position: 'relative', flexShrink: 0, width: 92, height: PH2, overflow: 'hidden', borderRadius: 15, background: 'rgba(229,164,76,0.07)', border: '1px solid rgba(229,164,76,0.4)', boxSizing: 'border-box', cursor: 'ns-resize', touchAction: 'none' }
+            : { display: 'none' },
+          prepListStyle: { display: 'flex', flexDirection: 'column', transform: 'translateY(' + (-pIdx * PH2 + pdy) + 'px)', transition: pDragging ? 'none' : 'transform 0.22s cubic-bezier(0.2,0.8,0.3,1)' },
+          prepHintStyle: { position: 'absolute', right: 5, top: 0, bottom: 0, display: 'flex', alignItems: 'center', color: 'rgba(229,164,76,0.5)', pointerEvents: 'none' },
+          prepWheel: e => { if (!preps) return; if (this._ppw && Date.now() - this._ppw < 220) return; this._ppw = Date.now(); setPrep(pIdx + (e.deltaY > 0 ? 1 : -1)); },
+          prepDown: e => { if (!preps) return; e.stopPropagation(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ platePrepDrag: { k: p.k, y0: e.clientY, dy: 0 } }); },
+          prepMove: e => { const s = this.state.platePrepDrag; if (!s || s.k !== p.k) return; e.stopPropagation(); this.setState({ platePrepDrag: { ...s, dy: e.clientY - s.y0 } }); },
+          prepUp: e => {
+            const s = this.state.platePrepDrag; if (!s || s.k !== p.k) return;
+            e.stopPropagation();
+            const d = s.dy;
+            this.setState({ platePrepDrag: null });
+            if (Math.abs(d) < 5) setPrep((pIdx + 1) % pn);
+            else setPrep(pIdx - Math.round(d / (PH2 * 0.7)));
+          },
+          rowStyle: { position: 'relative', overflow: 'hidden', borderBottom: '1px solid rgba(230,232,223,0.07)', touchAction: 'pan-y', cursor: 'grab', userSelect: 'none', background: fresh && !mine ? 'rgba(229,164,76,0.05)' : 'transparent' },
+          amtPillStyle: { flexShrink: 0, width: 92, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', borderRadius: 15, fontSize: 11, fontVariantNumeric: 'tabular-nums', background: sel ? 'rgba(229,164,76,0.16)' : 'rgba(229,164,76,0.07)', border: '1px solid rgba(229,164,76,0.4)', color: '#E5A44C' },
+          amtLabel: sel ? sel.grams + ' g' : '',
+          amtSub: sel ? macAt('kcal') + ' kcal' : '',
+          leftAmtStyle: sel
+            ? { position: 'absolute', top: 0, bottom: 0, left: 0, width: shiftX, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 1, color: '#E5A44C', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', pointerEvents: 'none' }
+            : { display: 'none' },
+          rmLabel: removing ? 'release to remove' : 'remove',
+          rmStyle: mine && ps.dx < -8
+            ? { position: 'absolute', top: 0, bottom: 0, right: 0, width: 84, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, letterSpacing: '0.3px', textAlign: 'center', lineHeight: 1.3, color: removing ? '#E5705C' : 'rgba(229,112,92,0.55)', pointerEvents: 'none' }
+            : { display: 'none' },
+          fillStyle: sel
+            ? { position: 'absolute', top: 0, bottom: 0, left: 0, width: Math.min(ps.dx, 340), background: 'linear-gradient(90deg, rgba(229,164,76,0.3), rgba(229,164,76,0.03))', pointerEvents: 'none' }
+            : (mine && ps.dx < -8
+              ? { position: 'absolute', top: 0, bottom: 0, right: 0, width: Math.min(-ps.dx, 340), background: 'linear-gradient(270deg, rgba(229,112,92,' + (removing ? 0.3 : 0.16) + '), rgba(229,112,92,0.02))', pointerEvents: 'none' }
+              : { position: 'absolute', top: 0, bottom: 0, left: 0, width: 0 }),
+          shiftStyle: { transform: 'translateX(' + shiftX + 'px)', transition: mine ? 'none' : 'transform 0.22s' },
+          down: e => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} this.setState({ plateSwipe: { i, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 } }); },
+          move: e => { const s = this.state.plateSwipe; if (!s || s.i !== i) return; this.setState({ plateSwipe: { ...s, dx: e.clientX - s.x0, dy: e.clientY - s.y0 } }); },
+          up: () => {
+            const s = this.state.plateSwipe; if (!s || s.i !== i) return;
+            this.setState({ plateSwipe: null });
+            if (sel) setPlate(pl => pl.map((x, j) => j === i ? { ...x, g: sel.grams } : x));
+            else if (removing) setPlate(pl => pl.filter((_, j) => j !== i));
+          },
+          badge: p.shots.length > 1 ? '↺ ' + p.shots.length : 'new',
+          badgeStyle: p.shots.length > 1
+            ? { flexShrink: 0, height: 15, padding: '0 6px', borderRadius: 8, fontSize: 8.5, display: 'flex', alignItems: 'center', color: '#7FBF6A', border: '1px solid rgba(127,191,106,0.4)' }
+            : (fresh ? { flexShrink: 0, height: 15, padding: '0 6px', borderRadius: 8, fontSize: 8.5, display: 'flex', alignItems: 'center', color: '#E5A44C', border: '1px solid rgba(229,164,76,0.45)' } : { display: 'none' }),
+          shotsLabel: gEff + ' g' + (p.shots.length > 1 ? ' · shots ' + p.shots.join('·') + ', counted once' : ''),
+        };
+      }),
+      logPlate: () => { if (!plate.length) return; clearTimeout(this._ai); this.setState({ plate: [], aiShot: 0, aiPhase: 'live', aiLast: null }); },
+      logPlateLabel: plate.length ? 'log ' + plateKcal : 'log',
+      logPlateStyle: { height: 36, padding: '0 13px', borderRadius: 18, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, flexShrink: 0, cursor: plate.length ? 'pointer' : 'default', background: plate.length ? '#E5A44C' : 'rgba(12,14,11,0.6)', border: '1px solid ' + (plate.length ? '#E5A44C' : 'rgba(230,232,223,0.2)'), color: plate.length ? '#0C0E0B' : 'rgba(230,232,223,0.35)' },
+    };
+    const psum = k => plate.reduce((a, p) => a + mac(p, k), 0);
+    return {
+      ...aiVals,
+      batchKcal: aiMode ? plateKcal : bsum('kcal'), batchP: aiMode ? psum('p') : bsum('p'), batchC: aiMode ? psum('c') : bsum('c'), batchF: aiMode ? psum('f') : bsum('f'), batchCount: batch.length,
+      ...(() => {
+        const base = { width: 40, height: 40, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 };
+        const out = {};
+        [['Scan', 'scan'], ['Search', 'search'], ['Ai', 'ai'], ['Quick', 'quick']].forEach(([cap, m]) => {
+          const on = this.state.mode === m;
+          out['setMode' + cap] = () => {
+            if (m === 'scan') { this.setState({ mode: m, scanState: 'searching', scanQty: 1 }); this._arm(); }
+            else { clearTimeout(this._t); this.setState(m === 'quick' ? { mode: m, qField: 'kcal' } : { mode: m }); }
+          };
+          out['mode' + cap + 'Style'] = on
+            ? { ...base, background: '#E5A44C', color: '#0C0E0B' }
+            : { ...base, background: '#222420', color: 'rgba(230,232,223,0.6)' };
+        });
+        return out;
+      })(),
+      ...scanVals,
+      ...quickVals,
+      quickMode: mode === 'quick', searchMode: mode !== 'scan' && mode !== 'quick' && mode !== 'ai',
+      query, queryEmpty: !query, queryHasText: !!query,
+      resultsLabel: q ? 'RESULTS · ' + shownFoods.length : '3 PM PICKS',
+      noResults: !!q && !shownFoods.length,
+      results, batchItems: aiMode ? aiVals.plateChips : batchItems, batchEmpty: aiMode ? !plate.length : !batch.length, kbRows,
+      ...portionVals,
+      chipsEmptyLabel: aiMode ? 'plate is empty — shoot to detect foods' : 'batch is empty — tap or swipe items to add',
+      clearBatch: () => aiMode ? aiVals.resetStack() : this.setState({ batch: [] }),
+      logBatch: () => aiMode ? aiVals.logPlate() : this.setState({ batch: [], query: '' }),
+      clearQuery: () => this.setState({ query: '' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

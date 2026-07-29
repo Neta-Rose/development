@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:healthapp/features/home/data/catalog_repository.dart';
+import 'package:healthapp/features/search/domain/portion.dart';
+import 'package:healthapp/features/search/presentation/camera_providers.dart';
 import 'package:healthapp/features/search/presentation/food_detail_screen.dart';
 import 'package:healthapp/features/search/presentation/portion_pad.dart';
+import 'package:healthapp/features/search/presentation/scan_stub.dart';
 import 'package:healthapp/features/search/presentation/search_providers.dart';
 import 'package:healthapp/features/search/presentation/search_screen.dart';
 
@@ -47,6 +50,49 @@ Future<void> _settleRoute(WidgetTester tester) async {
   for (var i = 0; i < 10; i++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+}
+
+/// Opens the search screen on a host that claims a camera, and enters scan mode.
+///
+/// Nothing else is overridden: scan mode reads no database and no network, and
+/// its match comes from `scan_stub.dart`.
+Future<void> _enterScanMode(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+
+  _ignoreOverflow();
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        cameraAvailableProvider.overrideWith((ref) async => true),
+        searchResultsProvider.overrideWith((ref) async => const <FoodHit>[]),
+      ],
+      child: const MaterialApp(home: SearchScreen()),
+    ),
+  );
+  await tester.pump();
+  await tester.pump();
+
+  await tester.tap(find.byKey(scanToggleKey));
+  await tester.pump();
+}
+
+/// Waits out the stub's arm timer and the card's entrance. Explicit durations
+/// throughout: the sweep and the status dot never stop, so `pumpAndSettle` would
+/// spin forever.
+Future<void> _waitForMatch(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 2));
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
+/// Leaves scan mode, which is what disposes the session. Every scan test ends
+/// this way: a session left in its searching state holds a live timer, and the
+/// test framework fails the test if one outlives the tree.
+Future<void> _leaveScanMode(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.search));
+  await tester.pump();
 }
 
 void main() {
@@ -253,5 +299,125 @@ void main() {
     expect(find.byType(FoodDetailScreen), findsNothing);
     expect(find.byType(Dismissible), findsOneWidget);
     expect(find.text('50 g'), findsOneWidget);
+  });
+
+  testWidgets('scan mode searches, and offers a way out while it does',
+      (tester) async {
+    await _enterScanMode(tester);
+
+    expect(find.text('SCANNING'), findsOneWidget);
+    expect(find.text('[ LIVE CAMERA FEED ]'), findsOneWidget);
+    expect(find.text('center the barcode in the frame'), findsOneWidget);
+    expect(find.text('enter code manually'), findsOneWidget);
+
+    // Leaving mid-scan is the case that must not leave the arm timer behind.
+    await tester.tap(find.text('search instead'));
+    await tester.pump();
+
+    expect(find.text('SCANNING'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('a match arrives, steps its portion, and can be thrown away',
+      (tester) async {
+    await _enterScanMode(tester);
+    await _waitForMatch(tester);
+
+    expect(find.text('MATCH FOUND'), findsOneWidget);
+    expect(find.text('confirm the portion below'), findsOneWidget);
+    expect(find.text('Whey Isolate, Vanilla'), findsOneWidget);
+    expect(find.text('TORRENT NUTRITION'), findsOneWidget);
+    // One scoop, at the numbers on the packet — the stub stores them per 100 g
+    // and `Portion.scale` brings them back.
+    expect(find.text('1 × scoop'), findsOneWidget);
+    expect(find.text('30 g'), findsOneWidget);
+    expect(find.text('120 kcal', findRichText: true), findsOneWidget);
+
+    // Three scoops.
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.text('+'));
+      await tester.pump();
+    }
+    expect(find.text('3 × scoop'), findsOneWidget);
+    expect(find.text('90 g'), findsOneWidget);
+    expect(find.text('360 kcal', findRichText: true), findsOneWidget);
+
+    // The stepper holds at both ends.
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.text('+'));
+      await tester.pump();
+    }
+    expect(find.text('6 × scoop'), findsOneWidget);
+    for (var i = 0; i < 7; i++) {
+      await tester.tap(find.text('−'));
+      await tester.pump();
+    }
+    expect(find.text('1 × scoop'), findsOneWidget);
+
+    // The card's × throws this match away and looks for the next product.
+    await tester.tap(find.byIcon(Icons.close).last);
+    await tester.pump();
+    expect(find.text('SCANNING'), findsOneWidget);
+    await _waitForMatch(tester);
+    expect(find.text('Greek Yogurt 2%'), findsOneWidget);
+
+    await _leaveScanMode(tester);
+  });
+
+  testWidgets('scanned products accumulate in the batch', (tester) async {
+    await _enterScanMode(tester);
+    await _waitForMatch(tester);
+
+    await tester.tap(find.text('add to batch · keep scanning'));
+    await tester.pump();
+
+    // Staged like anything else on this screen, and straight back to scanning.
+    expect(find.byType(Dismissible), findsOneWidget);
+    expect(find.text('1 × scoop'), findsOneWidget);
+    expect(find.text('120 kcal', findRichText: true), findsOneWidget);
+    expect(find.text('SCANNING'), findsOneWidget);
+
+    // The next product adds to the total rather than replacing it.
+    await _waitForMatch(tester);
+    await tester.tap(find.text('add to batch · keep scanning'));
+    await tester.pump();
+
+    expect(find.byType(Dismissible), findsNWidgets(2));
+    expect(find.text('1 × pot'), findsOneWidget);
+    expect(find.text('220 kcal', findRichText: true), findsOneWidget);
+
+    await _leaveScanMode(tester);
+  });
+
+  test('a scanned product round-trips the numbers on its packet', () {
+    // The design's labels: kcal, protein, carbs, fat — per serving, which is the
+    // only form a packet states them in.
+    const label = {
+      'Whey Isolate, Vanilla': [120.0, 27.0, 2.0, 1.0],
+      'Greek Yogurt 2%': [100.0, 17.0, 6.0, 3.0],
+      'Sourdough Loaf': [120.0, 4.0, 24.0, 1.0],
+      'Black Beans, No Salt': [190.0, 12.0, 34.0, 1.0],
+    };
+    expect(scanProducts.length, label.length);
+
+    for (final product in scanProducts) {
+      final food = product.food;
+      final serving =
+          portionFor(1, PortionUnit(food.servingLabel!, food.servingG!));
+      final want = label[food.name]!;
+      expect(serving.grams, food.servingG);
+      expect(
+        [
+          serving.scale(food.kcal100g),
+          serving.scale(food.protein100g),
+          serving.scale(food.carb100g),
+          serving.scale(food.fat100g),
+        ],
+        [for (final n in want) closeTo(n, 1e-9)],
+      );
+    }
+
+    // Stored per 100 g like every other nutrient in the app: 120 kcal per 30 g.
+    expect(scanProducts.first.food.kcal100g, 400);
   });
 }

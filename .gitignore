@@ -47,6 +47,12 @@ app.*.map.json
 /android/app/release
 .vercel
 .env*
+# ...but the backend's documented template is not a secret.
+!server/.env.example
+
+# server: Go build output. Nothing generated is committed.
+/server/plated
+/server/plated.exe
 
 # generate-sqlite: pipeline data. The DuckDB is the source of truth but is a
 # local artifact — the only output that ships is database/foods.sqlite, which
@@ -58,3 +64,7 @@ generate-sqlite/data/raw/*
 !generate-sqlite/data/raw/.gitkeep
 __pycache__/
 .venv/
+
+# upload-staged-patch skill: locally generated patches of the index, plus the
+# metadata for the last filebin upload. Transient artifacts, never committed.
+.kiro/patches/

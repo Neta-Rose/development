@@ -2,6 +2,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../home/data/catalog_repository.dart';
 import '../../home/data/food_log_repository.dart';
+import '../domain/ai_plate.dart';
 import '../domain/portion.dart';
 
 part 'search_providers.g.dart';
@@ -51,10 +52,18 @@ Future<FoodExtras?> foodExtras(Ref ref,
 
 /// One picked amount of one food, staged but not yet logged.
 class BatchItem {
-  const BatchItem(this.food, this.portion);
+  const BatchItem(this.food, this.portion, {this.ai});
 
   final FoodHit food;
   final Portion portion;
+
+  /// Non-null when this item came from the plate detector. Null is a search hit
+  /// or a quick entry.
+  ///
+  /// It carries the instance id a detection reply merges on, and it is what
+  /// routes a generated food through insert-or-reuse on the way out instead of
+  /// quick add's one-row-per-entry path.
+  final AiOrigin? ai;
 
   double get kcal => portion.scale(food.kcal100g);
   double get protein => portion.scale(food.protein100g);
@@ -80,6 +89,14 @@ class Batch extends _$Batch {
   void replace(BatchItem item, BatchItem next) =>
       state = [for (final e in state) identical(e, item) ? next : e];
 
+  /// Replaces the whole list in one assignment.
+  ///
+  /// What a detection reply commits: `mergePlate` decides the entire next state
+  /// of the plate — which rows merged, which appeared, which the user had already
+  /// corrected — and there is no per-item edit that expresses that. Also why
+  /// `mergePlate` returns fresh instances: the rules above work by `identical`.
+  void replaceAll(List<BatchItem> items) => state = List.unmodifiable(items);
+
   void clear() => state = const [];
 
   /// [hour] pins the entries to that hour of today, top of the hour; null logs
@@ -102,20 +119,35 @@ class Batch extends _$Batch {
         // food typed twice is two rows. `recent()` surfaces yesterday's, which
         // is cheaper than retyping — dedupe by name if that stops holding.
         final id = food.customFoodId ??
-            await repo.saveCustomFood(
-              name: food.name,
-              emoji: food.emoji,
-              // A quick entry is one nominal 100 g serving, so saveCustomFood's
-              // divisor is 1 and the typed numbers land verbatim as per 100 g.
-              servingG: 100,
-              servingLabel: 'serving',
-              perServing: {
-                'energy_kcal': food.kcal100g ?? 0,
-                'protein_g': food.protein100g ?? 0,
-                'fat_g': food.fat100g ?? 0,
-                'carb_g': food.carb100g ?? 0,
-              },
-            );
+            (item.ai != null
+                // A food the detector supplied whole. The *detector* will name
+                // it identically every time it sees it, so this path reuses the
+                // row instead of accumulating one per meal.
+                ? await repo.findOrCreateCustomFood(
+                    name: food.name,
+                    emoji: food.emoji,
+                    per100g: {
+                      'energy_kcal': food.kcal100g ?? 0,
+                      'protein_g': food.protein100g ?? 0,
+                      'fat_g': food.fat100g ?? 0,
+                      'carb_g': food.carb100g ?? 0,
+                    },
+                  )
+                : await repo.saveCustomFood(
+                    name: food.name,
+                    emoji: food.emoji,
+                    // A quick entry is one nominal 100 g serving, so
+                    // saveCustomFood's divisor is 1 and the typed numbers land
+                    // verbatim as per 100 g.
+                    servingG: 100,
+                    servingLabel: 'serving',
+                    perServing: {
+                      'energy_kcal': food.kcal100g ?? 0,
+                      'protein_g': food.protein100g ?? 0,
+                      'fat_g': food.fat100g ?? 0,
+                      'carb_g': food.carb100g ?? 0,
+                    },
+                  ));
         await repo.logCustomFood(id,
             grams: p.grams,
             portionQty: p.qty,

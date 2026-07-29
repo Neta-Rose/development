@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics="">
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#f0eee9;font-family:"Helvetica Neue",Helvetica,system-ui,sans-serif}a{color:#1a1a1a}a:hover{color:#000}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}.dv-tid{font:600 10px "IBM Plex Mono",monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-note{max-width:720px;font:11.5px/1.55 system-ui,sans-serif;color:rgba(0,0,0,.55);margin:0 0 24px}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px}.dv-oid{font:600 10.5px "IBM Plex Mono",monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:402px}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:26px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}@keyframes caretBlink{0%,49%{opacity:1}50%,100%{opacity:0}}</style>
+</helmet>
+<section class="dv-turn" id="t2">
+
+
+<div class="dv-opts">
+<div class="dv-opt" id="2a" data-screen-label="2a Console Timeline">
+
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="height:100%;display:flex;flex-direction:column;background:#0C0E0B;color:#E6E8DF;font-family:&quot;IBM Plex Mono&quot;,monospace">
+  <div style="padding:70px 20px 0">
+    
+    <div style="display:flex;align-items:flex-end;gap:18px;margin-top:10px">
+      <div>
+        <div style="font-size:34px;font-weight:600;letter-spacing:-1.5px;line-height:1">640<span style="font-size:15px;font-weight:400;color:rgba(230,232,223,0.45)"> / 2850</span></div>
+        <div style="font-size:9px;letter-spacing:1.5px;color:rgba(230,232,223,0.45);margin-top:5px">KCAL</div>
+      </div>
+      <div style="flex:1;display:flex;gap:14px;padding-bottom:1px">
+        <sc-for list="{{ counters2 }}" as="c" hint-placeholder-count="3">
+          <div style="flex:1">
+            <div style="{{ c.valStyle }}">{{ c.disp }}</div>
+            <div style="font-size:9px;letter-spacing:1.5px;color:rgba(230,232,223,0.45);margin:3px 0 5px">{{ c.k }}</div>
+            <div style="height:2px;background:rgba(230,232,223,0.12);border-radius:1px;overflow:hidden"><div style="{{ c.fillStyle }}"></div></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  <sc-if value="{{ postWorkout }}" hint-placeholder-val="{{ true }}">
+    <div style="margin:16px 20px 0;border:1px solid rgba(229,164,76,0.5);background:rgba(229,164,76,0.07);border-radius:9px;padding:11px 13px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:9.5px;letter-spacing:1.5px;color:#E5A44C;flex:1">▸ ANABOLIC WINDOW · T+0:29 · 2:19 LEFT</span>
+        <svg width="14" height="14" viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="6.5" fill="none" stroke="#E5A44C" stroke-width="1.4"></circle><circle cx="7.5" cy="4.6" r="0.9" fill="#E5A44C"></circle><line x1="7.5" y1="7" x2="7.5" y2="10.8" stroke="#E5A44C" stroke-width="1.5" stroke-linecap="round"></line></svg>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:10px">
+        <sc-for list="{{ windowMacros }}" as="w" hint-placeholder-count="3">
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="{{ w.labelStyle }}">{{ w.k }}</span><span style="font-size:10px;color:rgba(230,232,223,0.6)">{{ w.disp }}</span></div>
+            <div style="height:3px;background:rgba(230,232,223,0.12);border-radius:2px;overflow:hidden;margin-top:5px"><div style="{{ w.fillStyle }}"></div></div>
+          </div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ showWhy }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:9px;padding-top:8px;border-top:1px dashed rgba(229,164,76,0.35);display:flex;flex-direction:column;gap:5px;font-size:10.5px;line-height:1.5;color:rgba(230,232,223,0.7)">
+          <div><span style="color:#E5A44C">data&nbsp;&nbsp;</span>{{ sugg.data }}</div>
+          <div><span style="color:#E5A44C">sci&nbsp;&nbsp;&nbsp;</span>{{ sugg.sci }}</div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+  <div style="flex:1;overflow:hidden;margin:14px 0 0;position:relative">
+    <div style="position:absolute;left:37px;top:0;bottom:0;width:1px;background:rgba(230,232,223,0.1)"></div>
+    <sc-for list="{{ tlHours }}" as="hr" hint-placeholder-count="4">
+      <div style="padding:7px 20px 3px;position:relative">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="{{ hr.badgeStyle }}">{{ hr.h }}</span>
+          <span style="width:20px;height:20px;border-radius:10px;background:#222420;display:flex;align-items:center;justify-content:center;position:relative;z-index:1"><svg width="9" height="9" viewBox="0 0 10 10"><line x1="5" y1="1" x2="5" y2="9" stroke="rgba(230,232,223,0.55)" stroke-width="1.6" stroke-linecap="round"></line><line x1="1" y1="5" x2="9" y2="5" stroke="rgba(230,232,223,0.55)" stroke-width="1.6" stroke-linecap="round"></line></svg></span>
+          <span style="flex:1"></span>
+          <span style="{{ hr.totalStyle }}">{{ hr.totals }}</span>
+        </div>
+        <sc-for list="{{ hr.items }}" as="it" hint-placeholder-count="1">
+          <div style="margin:6px 0 0 34px;background:rgba(230,232,223,0.05);border:1px solid rgba(230,232,223,0.09);border-radius:8px;padding:8px 11px;display:flex;align-items:center;gap:10px">
+            <div style="width:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:22px;font-family:system-ui">{{ it.icon }}</div>
+            <div style="flex:1;min-width:0">
+              <div style="{{ it.nameStyle }}">{{ it.name }}</div>
+              <sc-if value="{{ it.hasMacros }}" hint-placeholder-val="{{ true }}">
+                <div style="font-size:10px;color:rgba(230,232,223,0.5);margin-top:3px">{{ it.kcal }} kcal · <span style="color:#E5705C">{{ it.p }}P</span> <span style="color:#7FBF6A">{{ it.c }}C</span> <span style="color:#E8C95C">{{ it.f }}F</span> · {{ it.serve }}</div>
+              </sc-if>
+              <sc-if value="{{ it.plainMeta }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:10px;color:rgba(230,232,223,0.5);margin-top:3px">{{ it.plainMeta }}</div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+  <div style="margin:10px 20px 12px;display:flex;align-items:center;gap:10px;border:1px solid rgba(230,232,223,0.22);border-radius:9px;height:48px;padding:0 14px;background:rgba(230,232,223,0.04)">
+    <svg width="17" height="17" viewBox="0 0 17 17"><circle cx="7" cy="7" r="5.2" fill="none" stroke="rgba(230,232,223,0.45)" stroke-width="1.8"></circle><line x1="11" y1="11" x2="15.5" y2="15.5" stroke="rgba(230,232,223,0.45)" stroke-width="1.8" stroke-linecap="round"></line></svg>
+    <span style="font-size:12.5px;color:rgba(230,232,223,0.45);flex:1">search foods…</span>
+    <svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="1.6" height="12" fill="rgba(230,232,223,0.45)"></rect><rect x="4.4" y="1" width="1" height="12" fill="rgba(230,232,223,0.45)"></rect><rect x="7" y="1" width="2.2" height="12" fill="rgba(230,232,223,0.45)"></rect><rect x="10.8" y="1" width="1" height="12" fill="rgba(230,232,223,0.45)"></rect><rect x="13.4" y="1" width="1.6" height="12" fill="rgba(230,232,223,0.45)"></rect><rect x="16.4" y="1" width="0.8" height="12" fill="rgba(230,232,223,0.45)"></rect></svg>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-around;padding:8px 14px 26px;background:#12140F;border-top:1px solid rgba(230,232,223,0.1)">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:56px"><svg width="19" height="19" viewBox="0 0 19 19"><rect x="3" y="2.5" width="13" height="14" rx="2.5" fill="none" stroke="#E6E8DF" stroke-width="1.7"></rect><line x1="6.5" y1="7" x2="12.5" y2="7" stroke="#E6E8DF" stroke-width="1.7" stroke-linecap="round"></line><line x1="6.5" y1="10.5" x2="10.5" y2="10.5" stroke="#E6E8DF" stroke-width="1.7" stroke-linecap="round"></line></svg><span style="font-size:9px;color:#E6E8DF">today</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:56px"><svg width="19" height="19" viewBox="0 0 19 19"><rect x="3" y="10" width="3.2" height="6.5" rx="1" fill="rgba(230,232,223,0.4)"></rect><rect x="8" y="6" width="3.2" height="10.5" rx="1" fill="rgba(230,232,223,0.4)"></rect><rect x="13" y="2.5" width="3.2" height="14" rx="1" fill="rgba(230,232,223,0.4)"></rect></svg><span style="font-size:9px;color:rgba(230,232,223,0.45)">trends</span></div>
+    <div style="width:46px;height:46px;border-radius:23px;background:#E5A44C;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 22 22"><line x1="11" y1="4" x2="11" y2="18" stroke="#0C0E0B" stroke-width="2.4" stroke-linecap="round"></line><line x1="4" y1="11" x2="18" y2="11" stroke="#0C0E0B" stroke-width="2.4" stroke-linecap="round"></line></svg></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:56px"><svg width="19" height="19" viewBox="0 0 19 19"><path d="M9.5 1.5L11.8 7.2L17.5 9.5L11.8 11.8L9.5 17.5L7.2 11.8L1.5 9.5L7.2 7.2Z" fill="rgba(230,232,223,0.4)"></path></svg><span style="font-size:9px;color:rgba(230,232,223,0.45)">coach</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:56px"><svg width="19" height="19" viewBox="0 0 19 19"><circle cx="9.5" cy="6" r="3.4" fill="none" stroke="rgba(230,232,223,0.4)" stroke-width="1.7"></circle><path d="M3 16.5c0-3.4 2.9-5.6 6.5-5.6s6.5 2.2 6.5 5.6" fill="none" stroke="rgba(230,232,223,0.4)" stroke-width="1.7" stroke-linecap="round"></path></svg><span style="font-size:9px;color:rgba(230,232,223,0.45)">you</span></div>
+  </div>
+</div>
+</x-import>
+</div>
+</div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;postWorkout&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Engine state&quot;},&quot;showWhy&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Suggestion&quot;},&quot;plannedHours&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Timeline&quot;},&quot;initialBatch&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:4,&quot;min&quot;:0,&quot;max&quot;:12,&quot;step&quot;:1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Search screen&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const pw = this.props.postWorkout ?? true;
+    const showWhy = this.props.showWhy ?? false;
+    const showPlan = this.props.plannedHours ?? true;
+    const sugg = pw ? {
+      tag: 'EAT NEXT · POST-WORKOUT',
+      tagEditorial: 'CHEF\u2019S SUGGESTION \u00b7 POST-LIFT',
+      title: 'Chicken breast 200g + jasmine rice 250g',
+      titleEditorial: 'Chicken & jasmine rice',
+      macroHero: '40P \u00b7 80C',
+      sub: '42g protein \u00b7 78g carbs \u00b7 9g fat \u00b7 645 kcal',
+      data: 'Session ended 09:12. 138g protein left today; you usually eat within 45 min of lifting.',
+      sci: 'Post-training protein (~0.4 g/kg) supports recovery \u2014 Schoenfeld & Aragon 2018 \u00b7 strong evidence',
+    } : {
+      tag: 'EAT NEXT · MID-MORNING',
+      tagEditorial: 'CHEF\u2019S SUGGESTION \u00b7 MID-MORNING',
+      title: 'Greek yogurt 300g + granola 50g',
+      titleEditorial: 'Yogurt & granola',
+      macroHero: '31P \u00b7 49C',
+      sub: '31g protein \u00b7 49g carbs \u00b7 11g fat \u00b7 420 kcal',
+      data: 'You log a snack between 10\u201311 on 80% of Saturdays; 138g protein left today.',
+      sci: 'Evenly spaced protein doses (4\u20135\u00d7/day) maximize daily MPS \u2014 Areta 2013 \u00b7 moderate evidence',
+    };
+    // 1a ledger
+    const rowBase = { display: 'flex', alignItems: 'baseline', gap: 12, padding: '10px 20px', borderBottom: '1px solid #ECE7DA', fontSize: 13.5 };
+    const ledgerSrc = [
+      { h: '06', item: 'Black coffee', kcal: '5' },
+      { h: '07', item: 'Oats 80g \u00b7 whole milk 400ml \u00b7 whey 30g', kcal: '635' },
+      { h: '08', item: 'Push A \u2014 57 min \u00b7 ~310 kcal out', kcal: '', s: { color: '#4C7A3F', fontWeight: 500 } },
+      { h: '09', item: pw ? 'Now \u2014 post-workout window open' : 'Now \u2014 nothing logged this hour', kcal: '', s: { background: '#EDF2E6', color: '#3E6B33', fontWeight: 600 } },
+      { h: '10', item: 'Plan \u00b7 40g protein \u00b7 80g carbs', kcal: '~640', plan: 1 },
+      { h: '13', item: 'Plan \u00b7 lunch \u00b7 45g protein', kcal: '~700', plan: 1 },
+      { h: '16', item: 'Plan \u00b7 snack \u00b7 whey + fruit', kcal: '~300', plan: 1 },
+      { h: '19', item: 'Plan \u00b7 dinner \u00b7 low carb', kcal: '~650', plan: 1 },
+      { h: '22', item: 'Plan \u00b7 casein 30g pre-sleep', kcal: '~120', plan: 1 },
+    ];
+    const ledgerRows = ledgerSrc.filter(r => showPlan || !r.plan).map(r => ({
+      h: r.h, item: r.item, kcal: r.kcal,
+      rowStyle: { ...rowBase, color: r.plan ? '#A9A292' : '#1B1A16', ...(r.s || {}) },
+    }));
+    const macroChips = [['PROTEIN', 42, 180], ['CARBS', 88, 320], ['FAT', 14, 75]].map(([k, v, t]) => ({
+      k, disp: v + '/' + t + 'g',
+      fillStyle: { width: Math.round(v / t * 100) + '%', height: '100%', background: '#4C7A3F', borderRadius: 2 },
+    }));
+    // 1b bars
+    const barSrc = [['05', 2], ['06', 9, 'eat'], ['07', 72, 'eat'], ['08', 34, 'wk'], ['09', 12, 'now'], ['10', 60, 'plan'], ['11', 2], ['12', 2], ['13', 68, 'plan'], ['14', 2], ['15', 2], ['16', 30, 'plan'], ['17', 2], ['18', 2], ['19', 64, 'plan'], ['20', 2], ['21', 2], ['22', 14, 'plan'], ['23', 2]];
+    const bars = barSrc.map(([h, ht, t]) => {
+      const hidden = t === 'plan' && !showPlan;
+      const height = hidden ? 2 : ht;
+      let s;
+      if (!t || hidden) s = { background: 'rgba(230,232,223,0.18)' };
+      else if (t === 'eat') s = { background: '#E6E8DF' };
+      else if (t === 'wk') s = { background: '#3D4536' };
+      else if (t === 'now') s = { background: '#E5A44C', boxShadow: '0 0 10px rgba(229,164,76,0.5)' };
+      else s = { background: 'transparent', border: '1px solid rgba(230,232,223,0.3)' };
+      return { style: { flex: 1, height, borderRadius: 2, ...s } };
+    });
+    const counters = [['PRO', 42, 180], ['CHO', 88, 320], ['FAT', 14, 75]].map(([k, v, t]) => ({
+      k, disp: v + ' / ' + t + 'g',
+      fillStyle: { width: Math.round(v / t * 100) + '%', height: '100%', background: '#E5A44C', borderRadius: 2 },
+    }));
+    const logLines = [
+      { t: '06:32', txt: 'black coffee', k: '+5' },
+      { t: '07:15', txt: 'oats 80g \u00b7 milk 400ml \u00b7 whey 30g', k: '+635' },
+      { t: '08:15', txt: 'workout: push_a \u00b7 57min', k: '\u2212310' },
+    ];
+    // 1c menu
+    const menuBase = { display: 'flex', alignItems: 'baseline', padding: '9px 24px' };
+    const menuSrc = [
+      { h: '6:30', dish: 'Black coffee', kcal: '5' },
+      { h: '7:15', dish: 'Oats, milk & whey', kcal: '635' },
+      { h: '8:15', dish: 'Push day \u2014 57 minutes', kcal: '\u2212310', wk: 1 },
+      { h: '1 pm', dish: 'Lunch \u2014 45g protein', kcal: '~700', plan: 1 },
+      { h: '7 pm', dish: 'Dinner \u2014 lighter carbs', kcal: '~650', plan: 1 },
+      { h: '10 pm', dish: 'Casein, before bed', kcal: '~120', plan: 1 },
+    ];
+    const menuRows = menuSrc.filter(m => showPlan || !m.plan).map(m => ({
+      h: m.h, dish: m.dish, kcal: m.kcal,
+      style: { ...menuBase, color: m.wk ? '#B4633E' : m.plan ? '#B0A28B' : '#2C2117' },
+    }));
+    // 1d rail
+    const dotBase = { width: 12, height: 12, borderRadius: '50%', marginTop: 4, flexShrink: 0, position: 'relative', zIndex: 1 };
+    const railPast = [
+      { t: '06:30', title: 'Black coffee', meta: '5 kcal', dotStyle: { ...dotBase, background: '#101010' } },
+      { t: '07:15', title: 'Oats \u00b7 milk \u00b7 whey', meta: '635 kcal \u2014 42P \u00b7 88C \u00b7 14F', dotStyle: { ...dotBase, background: '#101010' } },
+      { t: '08:15', title: 'PUSH A \u2014 57 MIN', meta: 'gym detected \u00b7 ~310 kcal out', dotStyle: { ...dotBase, background: '#5352E8' } },
+    ];
+    const railFuture = (showPlan ? [
+      { t: '13:00', title: 'Lunch', meta: 'plan \u2014 45g protein' },
+      { t: '19:00', title: 'Dinner', meta: 'plan \u2014 low carb' },
+      { t: '22:00', title: 'Casein', meta: 'plan \u2014 30g pre-sleep' },
+    ] : []).map(e => ({ ...e, dotStyle: { ...dotBase, width: 8, height: 8, border: '2px solid #C9C9C2', background: '#FAFAF7' } }));
+    // 2a hourly timeline
+    const MC = { p: '#E5705C', c: '#7FBF6A', f: '#E8C95C' };
+    const windowMacros = [['PROTEIN', 0, 40, MC.p], ['CARBS', 0, 80, MC.c], ['FAT', 0, 10, MC.f]].map(([k, v, t, col]) => ({
+      k, disp: v + ' / ' + t + 'g',
+      labelStyle: { fontSize: 9, letterSpacing: '1px', color: col },
+      fillStyle: { width: Math.max(2, Math.round(v / t * 100)) + '%', height: '100%', background: col, borderRadius: 2 },
+    }));
+    const counters2 = [['PRO', 42, 180, MC.p], ['CARBS', 88, 320, MC.c], ['FAT', 14, 75, MC.f]].map(([k, v, t, col]) => ({
+      k, disp: v + ' / ' + t + 'g',
+      valStyle: { fontSize: 12, color: col },
+      fillStyle: { width: Math.round(v / t * 100) + '%', height: '100%', background: col, borderRadius: 1 },
+    }));
+    const icons = { coffee: '☕', bowl: '🥣', milk: '🥛', shaker: '🥤', dumbbell: '🏋️' };
+    const badgeBase = { fontSize: 10.5, letterSpacing: '1px', padding: '4px 8px', borderRadius: 6, background: '#222420', color: '#E6E8DF', position: 'relative', zIndex: 1 };
+    const totalBase = { fontSize: 10, color: 'rgba(230,232,223,0.5)' };
+    const nameBase = { fontSize: 12.5, lineHeight: 1.35, color: '#E6E8DF' };
+    const tlSrc = [
+      { h: '06', totals: '5 kcal', items: [{ name: 'Black Coffee', icon: 'coffee', kcal: 5, p: 0, c: 0, f: 0, serve: '1 cup' }] },
+      { h: '07', totals: '635 kcal · 42P 88C 14F', items: [
+        { name: 'Oats', icon: 'bowl', kcal: 303, p: 11, c: 54, f: 5, serve: '80 g' },
+        { name: 'Whole Milk', icon: 'milk', kcal: 212, p: 14, c: 20, f: 8, serve: '400 ml' },
+        { name: 'Whey Isolate', icon: 'shaker', kcal: 120, p: 27, c: 2, f: 1, serve: '30 g' },
+      ]},
+      { h: '08', totals: '−310 kcal', wk: 1, items: [{ name: 'Push A — 57 min', icon: 'dumbbell', plainMeta: 'workout detected · gym', wk: 1 }] },
+      { h: '09', totals: 'now', now: 1, items: [] },
+      { h: '13', totals: '~700 kcal plan', plan: 1, items: [] },
+      { h: '19', totals: '~650 kcal plan', plan: 1, items: [] },
+    ];
+    const tlFull = [];
+    for (let hh = 5; hh <= 23; hh++) {
+      const key = String(hh).padStart(2, '0');
+      tlFull.push(tlSrc.find(r => r.h === key) || { h: key, totals: '', empty: 1, items: [] });
+    }
+    const tlHours = tlFull.filter(r => showPlan || !r.plan).map(r => ({
+      h: r.h, totals: r.totals,
+      badgeStyle: r.now ? { ...badgeBase, background: '#E5A44C', color: '#0C0E0B', fontWeight: 600 }
+        : r.plan ? { ...badgeBase, background: '#0C0E0B', border: '1px solid rgba(230,232,223,0.18)', color: 'rgba(230,232,223,0.4)' }
+        : badgeBase,
+      totalStyle: r.now ? { ...totalBase, color: '#E5A44C', letterSpacing: '1.5px' } : r.plan ? { ...totalBase, color: 'rgba(230,232,223,0.3)' } : totalBase,
+      items: (r.items || []).map(it => ({
+        name: it.name, icon: icons[it.icon], hasMacros: it.kcal != null, kcal: it.kcal, p: it.p, c: it.c, f: it.f, serve: it.serve, plainMeta: it.plainMeta,
+        nameStyle: it.wk ? { ...nameBase, color: '#E5A44C' } : nameBase,
+      })),
+    }));
+    return { sugg, showWhy, postWorkout: pw, tlHours, counters2, windowMacros, ledgerRows, macroChips, bars, counters, logLines, menuRows, railPast, railFuture };
+  }
+}
+</script>
+</body>
+</html>

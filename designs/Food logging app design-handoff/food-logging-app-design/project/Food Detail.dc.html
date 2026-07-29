@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#f0eee9;font-family:"Helvetica Neue",Helvetica,system-ui,sans-serif;display:flex;justify-content:center;padding:40px 0}a{color:#E5A44C}a:hover{color:#F0BC72}</style>
+</helmet>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="height:100%;display:flex;flex-direction:column;background:#0C0E0B;color:#E6E8DF;font-family:&quot;IBM Plex Mono&quot;,monospace" data-screen-label="Food Detail">
+
+  <div style="padding:60px 14px 8px;display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <div onClick="{{ goBack }}" style="width:34px;height:34px;border-radius:17px;background:#222420;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#E6E8DF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="7,1.5 2.5,5.5 7,9.5"></polyline></svg>
+    </div>
+    <div style="flex:1;min-width:0;text-align:center">
+      <div style="font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display:flex; align-items:center; justify-content:center; gap:7px"><span style="font-size:17px;line-height:1">{{ icon }}</span>{{ name }}</div>
+      
+    </div>
+    <div style="width:34px;flex-shrink:0"></div>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow-y:auto;scrollbar-width:none">
+
+    <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;align-items:end;gap:10px;padding:14px 16px 18px">
+      <div style="min-width:0">
+        <div style="font-size:44px;font-weight:600;letter-spacing:-2px;line-height:0.9;font-variant-numeric:tabular-nums">{{ kcal }}</div>
+        <div style="font-size:9.5px;letter-spacing:1.3px;color:rgba(230,232,223,0.45);margin-top:8px">CALORIES</div>
+      </div>
+      <sc-for list="{{ macros }}" as="m" hint-placeholder-count="3">
+        <div style="min-width:0">
+          <div style="{{ m.pctStyle }}">{{ m.pct }}</div>
+          <div style="{{ m.valStyle }}">{{ m.val }}</div>
+          <div style="font-size:9.5px;letter-spacing:1.3px;color:rgba(230,232,223,0.45);margin-top:6px">{{ m.label }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 14px 16px;border-bottom:1px solid rgba(230,232,223,0.08)">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;user-select:none">
+        <div style="width:100%;height:40px;border-radius:10px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;box-sizing:border-box;color:rgba(230,232,223,0.8)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 2.4l3 3-7.7 7.7-3.4.7.7-3.4Z"></path><line x1="9.1" y1="3.9" x2="12.1" y2="6.9"></line></svg>
+        </div>
+        <div style="font-size:9.5px;color:rgba(230,232,223,0.55)">Edit</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;user-select:none">
+        <div style="width:100%;height:40px;border-radius:10px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;box-sizing:border-box;color:rgba(230,232,223,0.8)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.6" y="5.6" width="8" height="8" rx="1.6"></rect><path d="M10.4 3.4A1.6 1.6 0 0 0 8.9 2.4H4a1.6 1.6 0 0 0-1.6 1.6v4.9a1.6 1.6 0 0 0 1 1.5"></path></svg>
+        </div>
+        <div style="font-size:9.5px;color:rgba(230,232,223,0.55)">Duplicate</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;user-select:none">
+        <div style="width:100%;height:40px;border-radius:10px;background:#1A1C17;border:1px solid rgba(230,232,223,0.09);display:flex;align-items:center;justify-content:center;box-sizing:border-box;color:#E5705C">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.6" y1="4.4" x2="13.4" y2="4.4"></line><path d="M6.2 4.4V2.9a.9.9 0 0 1 .9-.9h1.8a.9.9 0 0 1 .9.9v1.5"></path><path d="M4.2 4.4l.7 8.5a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.7-8.5"></path><line x1="6.8" y1="6.8" x2="7" y2="11.4"></line><line x1="9.2" y1="6.8" x2="9" y2="11.4"></line></svg>
+        </div>
+        <div style="font-size:9.5px;color:rgba(230,232,223,0.55)">Delete</div>
+      </div>
+    </div>
+
+    <div style="padding:16px 16px 6px;display:flex;align-items:baseline;justify-content:space-between">
+      <span style="font-size:9.5px;letter-spacing:1.5px;color:rgba(230,232,223,0.45)">IMPACT ON TARGETS</span>
+      <span style="font-size:9px;color:rgba(230,232,223,0.28)">{{ targetHint }}</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:6px 14px 18px">
+      <sc-for list="{{ rings }}" as="r" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div style="{{ r.ringStyle }}">
+            <div style="position:absolute;inset:5px;border-radius:50%;background:#0C0E0B;display:flex;align-items:center;justify-content:center">
+              <span style="{{ r.pctStyle }}">{{ r.pct }}</span>
+            </div>
+          </div>
+          <div style="font-size:9px;letter-spacing:0.8px;color:rgba(230,232,223,0.42)">{{ r.label }}</div>
+          <div style="font-size:8.5px;color:rgba(230,232,223,0.28);font-variant-numeric:tabular-nums">{{ r.sub }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="padding:14px 16px 8px;border-top:1px solid rgba(230,232,223,0.08)">
+      <div style="font-size:9.5px;letter-spacing:1.5px;color:rgba(230,232,223,0.45)">ENERGY BREAKDOWN</div>
+    </div>
+    <div style="padding:0 16px 14px">
+      <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:#1A1C17">
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="3">
+          <div style="{{ b.style }}"></div>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="{{ b.dotStyle }}"></div>
+            <span style="font-size:10px;color:rgba(230,232,223,0.6)">{{ b.label }}</span>
+            <span style="{{ b.kcalStyle }}">{{ b.kcal }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding:14px 16px 8px;border-top:1px solid rgba(230,232,223,0.08);font-size:9.5px;letter-spacing:1.5px;color:rgba(230,232,223,0.45)">CARB BREAKDOWN</div>
+    <div style="padding:0 16px 6px">
+      <sc-for list="{{ nutrients }}" as="n" hint-placeholder-count="6">
+        <div style="{{ n.rowStyle }}">
+          <span style="{{ n.nameStyle }}">{{ n.name }}</span>
+          <span style="flex:1;border-bottom:1px dotted rgba(230,232,223,0.14);margin:0 8px;transform:translateY(-3px)"></span>
+          <span style="{{ n.valStyle }}">{{ n.val }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="height:14px"></div>
+  </div>
+
+  
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;482px&quot;,&quot;height&quot;:&quot;954px&quot;},&quot;foodName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Almond Butter&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;foodIcon&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;🥜&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;kcal&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:100,&quot;min&quot;:0,&quot;max&quot;:1200,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;protein&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:3,&quot;min&quot;:0,&quot;max&quot;:200,&quot;step&quot;:0.5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;fat&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:9,&quot;min&quot;:0,&quot;max&quot;:200,&quot;step&quot;:0.5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;carbs&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:4,&quot;min&quot;:0,&quot;max&quot;:300,&quot;step&quot;:0.5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;unit&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;tbsp&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;unitG&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:16,&quot;min&quot;:1,&quot;max&quot;:500,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;sourceLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;USDA · VERIFIED&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Food&quot;},&quot;goalKcal&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:2400,&quot;min&quot;:800,&quot;max&quot;:5000,&quot;step&quot;:50,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Targets&quot;},&quot;goalProtein&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:160,&quot;min&quot;:20,&quot;max&quot;:400,&quot;step&quot;:5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Targets&quot;},&quot;goalFat&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:70,&quot;min&quot;:10,&quot;max&quot;:250,&quot;step&quot;:5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Targets&quot;},&quot;goalCarbs&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:260,&quot;min&quot;:20,&quot;max&quot;:700,&quot;step&quot;:10,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Targets&quot;},&quot;onBack&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { qty: 1, logged: false };
+  renderVals() {
+    let U = {};
+    try { new URLSearchParams(location.search).forEach((v, k) => { U[k] = v; }); } catch (_) {}
+    const numU = (k, d) => (U[k] !== undefined && U[k] !== '' && !isNaN(parseFloat(U[k])) ? parseFloat(U[k]) : d);
+    const name = this.props.foodName ?? U.name ?? 'Almond Butter';
+    const icon = this.props.foodIcon ?? U.icon ?? '🥜';
+    const unit = this.props.unit ?? U.unit ?? 'tbsp';
+    const unitG = this.props.unitG ?? numU('unitG', 16);
+    const base = {
+      kcal: this.props.kcal ?? numU('kcal', 100),
+      p: this.props.protein ?? numU('p', 3.0),
+      f: this.props.fat ?? numU('f', 9.0),
+      c: this.props.carbs ?? numU('c', 4.0),
+    };
+    const goals = { kcal: this.props.goalKcal ?? 2400, p: this.props.goalProtein ?? 160, f: this.props.goalFat ?? 70, c: this.props.goalCarbs ?? 260 };
+    const COL = { p: '#E5705C', c: '#7FBF6A', f: '#E8C95C', kcal: '#E5A44C' };
+    const q = this.state.qty;
+    const v = k => Math.round(base[k] * q * 10) / 10;
+    const kcal = Math.round(base.kcal * q);
+    const fmt = n => (n % 1 === 0 ? n.toFixed(1) : String(n));
+    const energy = { p: base.p * 4, c: base.c * 4, f: base.f * 9 };
+    const eTot = Math.max(1, energy.p + energy.c + energy.f);
+    const share = k => Math.round((energy[k] / eTot) * 100);
+    const macros = [['p', 'PROTEIN'], ['f', 'FAT'], ['c', 'CARBS']].map(([k, label]) => ({
+      label, val: fmt(v(k)), pct: share(k) + '%',
+      pctStyle: { display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 8px', borderRadius: 9, fontSize: 9.5, fontWeight: 600, color: '#0C0E0B', background: COL[k], marginBottom: 9, fontVariantNumeric: 'tabular-nums' },
+      valStyle: { fontSize: 21, fontWeight: 600, letterSpacing: '-0.6px', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' },
+    }));
+    const rings = [['kcal', 'CALORIES', kcal, goals.kcal, ''], ['p', 'PROTEIN', v('p'), goals.p, 'g'], ['f', 'FAT', v('f'), goals.f, 'g'], ['c', 'CARBS', v('c'), goals.c, 'g']].map(([k, label, val, goal, u]) => {
+      const pct = Math.min(100, Math.round((val / goal) * 100));
+      const deg = Math.max(2, (pct / 100) * 360);
+      return {
+        label, pct: pct + '%', sub: (Math.round(val * 10) / 10) + u + ' / ' + goal + u,
+        ringStyle: { position: 'relative', width: 54, height: 54, borderRadius: 27, background: 'conic-gradient(' + COL[k] + ' ' + deg + 'deg, rgba(230,232,223,0.1) ' + deg + 'deg)' },
+        pctStyle: { fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: pct >= 5 ? '#E6E8DF' : 'rgba(230,232,223,0.5)' },
+      };
+    });
+    const bars = [['p', 'protein'], ['c', 'carbs'], ['f', 'fat']].map(([k, label]) => ({
+      label, kcal: Math.round(energy[k] * q) + ' kcal',
+      style: { width: share(k) + '%', background: COL[k] },
+      dotStyle: { width: 7, height: 7, borderRadius: 4, background: COL[k], flexShrink: 0 },
+      kcalStyle: { fontSize: 10, color: 'rgba(230,232,223,0.35)', fontVariantNumeric: 'tabular-nums' },
+    }));
+    const nutrients = [
+      ['Total carbohydrate', v('c') + ' g', true],
+      ['Dietary fibre', Math.round(v('c') * 0.45 * 10) / 10 + ' g', false],
+      ['Total sugars', Math.round(v('c') * 0.28 * 10) / 10 + ' g', false],
+      ['— added sugars', '0 g', false],
+      ['Net carbs', Math.round(v('c') * 0.55 * 10) / 10 + ' g', true],
+      ['Saturated fat', Math.round(v('f') * 0.09 * 10) / 10 + ' g', false],
+      ['Sodium', Math.round(2 * q * unitG) + ' mg', false],
+    ].map(([n, val, strong]) => ({
+      name: n, val,
+      rowStyle: { display: 'flex', alignItems: 'baseline', padding: '9px 0', borderBottom: '1px solid rgba(230,232,223,0.05)' },
+      nameStyle: { fontSize: 11.5, color: strong ? '#E6E8DF' : 'rgba(230,232,223,0.55)', paddingLeft: n.startsWith('—') ? 12 : 0 },
+      valStyle: { fontSize: 11.5, fontVariantNumeric: 'tabular-nums', fontWeight: strong ? 600 : 400, color: strong ? '#E5A44C' : 'rgba(230,232,223,0.7)' },
+    }));
+    return {
+      name, icon, macros, rings, bars, nutrients, kcal,
+      sourceLabel: this.props.sourceLabel ?? U.source ?? '',
+      targetHint: 'daily goals',
+      amtLabel: (Math.round(q * 100) / 100) + ' ' + unit + (q > 1 ? 's' : ''),
+      gramLabel: Math.round(q * unitG) + ' g',
+      dec: () => this.setState(s => ({ qty: Math.max(0.25, Math.round((s.qty - 0.25) * 100) / 100), logged: false })),
+      inc: () => this.setState(s => ({ qty: Math.min(20, Math.round((s.qty + 0.25) * 100) / 100), logged: false })),
+      logIt: () => this.setState({ logged: true }),
+      logLabel: this.state.logged ? 'logged · ' + kcal + ' kcal' : 'log ' + kcal + ' kcal',
+      logStyle: { marginTop: 10, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: this.state.logged ? 'rgba(127,191,106,0.15)' : '#E5A44C', border: '1px solid ' + (this.state.logged ? 'rgba(127,191,106,0.5)' : '#E5A44C'), color: this.state.logged ? '#7FBF6A' : '#0C0E0B' },
+      goBack: () => { if (this.props.onBack) this.props.onBack(); else if (history.length > 1) history.back(); else location.href = 'Food Search.dc.html'; },
+    };
+  }
+}
+</script>
+</body>
+</html>

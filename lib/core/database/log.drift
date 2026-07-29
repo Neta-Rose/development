@@ -228,3 +228,18 @@ SELECT food_id, custom_food_id, name, emoji,
  GROUP BY food_id, custom_food_id
  ORDER BY n DESC, last_at DESC
  LIMIT 20;
+
+-- Insert-or-reuse for a food the plate detector supplied whole. Without it the
+-- same off-catalog food accumulates one custom_foods row per meal it appears in.
+--
+-- No index: this is a scan of a few hundred rows, sub-millisecond, the same
+-- reasoning `_customSearch` already records for its LIKE.
+--
+-- ponytail: SQLite's lower() is ASCII-only, so two spellings of a non-ASCII name
+-- that differ only in case still produce two rows. The fix is folding the name in
+-- Dart and comparing on the folded form.
+customFoodByName:
+SELECT id FROM custom_foods
+ WHERE deleted = 0 AND lower(trim(name)) = lower(trim(:name))
+ ORDER BY updated_at DESC
+ LIMIT 1;
