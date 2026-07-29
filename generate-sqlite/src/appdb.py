@@ -69,25 +69,32 @@ CREATE TABLE foods (
     carb_100g     REAL,
     serving_g     REAL,
     serving_label TEXT,
-    merged_food_id INTEGER NOT NULL
+    merged_food_id INTEGER NOT NULL,
+    prep_id        INTEGER NOT NULL
 );
 
--- Stage 6b's grouping: one row per food a user recognizes, with its
--- preparations and fat levels hanging off it as foods.merged_food_id.
--- merged_food_id IS the canonical variant's food_id, so a group id is a real,
--- loggable food and the group's macros, portions and nutrients are just that
--- foods row. Only variable_fat and n_foods are facts about the group rather
--- than about any member; the three display columns are duplicated from the
--- canonical row so the search list renders without a second lookup.
+-- Stage 3b's grouping: one row per food a user recognizes, with its
+-- preparations hanging off it as foods.prep_id and its members as
+-- foods.merged_food_id.
+--
+-- merged_food_id IS the default preparation's food_id, so a group id is a
+-- real, loggable food and the group's macros, portions and nutrients are just
+-- that foods row. display_name / emoji / commonness / keywords are facts about
+-- the whole item (Stage 4 names the item, not the row); prep_type is the
+-- default preparation's, carried here so the search list and its ranking need
+-- no second lookup.
 --
 -- No FK: nothing else in this file declares one, and the catalog is read-only.
 CREATE TABLE merged_foods (
     merged_food_id INTEGER PRIMARY KEY,
-    display_name   TEXT NOT NULL,
+    display_name   TEXT,
     emoji          TEXT,
+    prep_type      TEXT,
     category       TEXT,
+    commonness     REAL,
     variable_fat   INTEGER NOT NULL,
-    n_foods        INTEGER NOT NULL
+    n_foods        INTEGER NOT NULL,
+    n_preps        INTEGER NOT NULL
 );
 
 CREATE TABLE nutrients (
@@ -131,8 +138,9 @@ _NUTRITION_DDL = "CREATE TABLE food_nutrition (\n    food_id INTEGER PRIMARY KEY
 # nobody has written yet.
 APP_INDEXES = (
     "CREATE INDEX ix_foods_category ON foods(category)",
-    # Both merge reads are range scans on this: listing a group's variants, and
-    # collapsing a search result set to one row per group.
+    # Two reads are range scans on this: listing an item's preparations for the
+    # variant selector, and mapping a logged food_id back to its item for the
+    # search ranking's recency term.
     "CREATE INDEX ix_foods_merged ON foods(merged_food_id)",
     "CREATE INDEX ix_nut_kcal    ON food_nutrition(energy_kcal)",
     "CREATE INDEX ix_nut_protein ON food_nutrition(protein_g)",
@@ -142,24 +150,45 @@ APP_INDEXES = (
     "CREATE INDEX ix_pairs_score ON food_pairs(food_id, score DESC)",
 )
 
-# rowid = food_id in both. content='' (contentless) because we only ever want
-# rowids and a bm25 score back, never the text — that keeps both indexes small.
+# rowid = merged_food_id in both — ONE ROW PER ITEM, not per food. content=''
+# (contentless) because we only ever want rowids and a bm25 score back, never
+# the text, which keeps both indexes small.
+#
+# Indexing the item rather than the USDA row is what lets the app rank search
+# results by the composite score. The collapsed query used to need a GROUP BY
+# to fold an item's variants back together, and an FTS5 auxiliary function is
+# only legal in a query whose FROM is the FTS table itself: joining is fine,
+# but aggregating is not, so bm25() could not be multiplied by anything. With
+# no rows to fold there is no GROUP BY, and the score is an ordinary
+# expression again.
 #
 # food_fts is the primary path: unicode61 tokenizing with prefix indexes for
-# as-you-type search, three columns so bm25 can weight a name hit above a hit
-# buried in the USDA text. `aka` carries USDA's own Common Name / Additional
-# Description synonyms, which is what makes "hot dog" find Frankfurter, plus
-# the Stage 4c LLM keywords (ingredients, cuisine, occasion) — same kind of
-# text, same weight, so neither the schema nor the queries grow a column for it.
+# as-you-type search, four columns so bm25 can weight a name hit above a hit
+# buried in the USDA text.
+#   name    = the item's display_name (its USDA description until Stage 4 runs)
+#   prep    = its preparation labels, so "poached" finds the egg
+#   aka     = USDA Common Name / Additional Description synonyms, which is what
+#             makes "hot dog" find Frankfurter, plus the Stage 4 LLM keywords
+#             (ingredients, cuisine, occasion) — same kind of text, same weight
+#   members = the DISTINCT tokens of every member description
 #
-# `name` is coalesce(display_name, description) — the string the app displays —
-# NOT display_name on its own. Indexing display_name as its own weighted column
-# systematically promotes the enriched minority (2.4k of 13.7k foods have one)
-# over better matches that simply have not been enriched yet: measured, it put
-# "Ranch dip, yogurt based" above "Yogurt, Greek, plain" for `greek yogurt`,
-# and "Imitation cheddar cheese" above "Cheese, cheddar". Ranking the string
-# that is actually shown removes the bias, and it disappears from the query
-# side entirely rather than needing weights tuned around it.
+# `members` is deduplicated to a token set rather than concatenated, and that
+# is load-bearing: bm25 normalizes by document length, so concatenating an
+# 18-member group's descriptions would bury it under a single-member item.
+# Measured over the corpus, concatenation gives 644k chars against 350k
+# deduplicated, and up to 15x on the worst groups (1,536 -> 105 chars), which
+# puts a big group back on the same footing as a small one. It is safe because
+# the app only ever builds implicit-AND prefix queries ("chicken"* "brea"*),
+# never NEAR() or a phrase query, which are the only things that need word
+# order. Losing term frequency is a bonus: a group that says "chicken" 18 times
+# should not outrank one that says it once.
+#
+# Weighting `name` as its own column was measured to be actively harmful when
+# only 2.4k of 13.7k foods had a display_name — it promoted the enriched
+# minority, putting "Ranch dip, yogurt based" above "Yogurt, Greek, plain".
+# That does not apply now: every item gets named, so there is no minority to
+# promote. coalesce(display_name, description) stays as the un-enriched
+# fallback so a half-finished run still ranks sanely.
 #
 # food_fts_trgm is the typo fallback, queried only when the primary path
 # returns too few rows. Note that MATCH-ing the misspelling itself against a
@@ -168,7 +197,7 @@ APP_INDEXES = (
 # rank by shared-trigram overlap. See search_sql() for the exact shape.
 FTS_DDL = (
     "CREATE VIRTUAL TABLE food_fts USING fts5("
-    "name, description, aka, content='', prefix='2 3', "
+    "name, prep, aka, members, content='', prefix='2 3', "
     "tokenize='unicode61 remove_diacritics 2')",
     "CREATE VIRTUAL TABLE food_fts_trgm USING fts5(txt, content='', tokenize='trigram')",
 )
@@ -431,46 +460,74 @@ def log_ddl() -> str:
     return _LOG_DDL.format(cols=_nutrient_cols(), guarded=_nutrient_cols(check=True))
 
 
-def _collapse_sql(fts: str, weights: str = "") -> str:
-    """One search result per Stage 6b merged item, not per USDA row.
+# Down-ranks institutional and infant variants, which match ordinary queries
+# and are almost never what someone logging their lunch meant.
+_PENALTY_TERMS = ("%restaurant%", "%school lunch%", "%baby food%")
 
-    The index still holds every variant, so typing "poached" or "80% lean"
-    finds the group; only the result set collapses. A group is ranked by its
-    best-matching variant and displayed as its canonical one.
 
-    Three things make this work:
+def _search_sql(fts: str, rank: str) -> str:
+    """One search result per merged item, ranked by the composite score.
 
-    * The weights are set with ``rank MATCH 'bm25(...)'`` rather than by
-      calling ``bm25()`` in the SELECT list. An FTS5 auxiliary function is only
-      legal in a query whose FROM is the FTS table itself — the moment the
-      match is joined to anything, ``bm25()`` fails with "unable to use
-      function bm25 in the requested context", and that is true of a subquery
-      and a plain CTE alike. Reading the hidden ``rank`` column instead scores
-      inside the subquery and hands out an ordinary number, which the join and
-      the GROUP BY can then use. (``WITH … AS MATERIALIZED`` also works and
-      scores identically, but needs SQLite 3.35+ for one extra scan.)
-    * rank is negative-is-better, so ``min()`` is the best variant and the
-      ascending ORDER BY is the same one the flat query used.
-    * The ``c.*`` columns are bare under GROUP BY, but they are functionally
-      dependent on the group key (the join is ``c.food_id = m.merged_food_id``),
-      so SQLite's arbitrary-row rule has exactly one row to pick from.
+    Because rowid IS merged_food_id there is nothing to collapse: no subquery,
+    no GROUP BY, no min(rank). That is what makes the composite score legal
+    here at all. An FTS5 auxiliary function is only legal in a query whose FROM
+    is the FTS table itself — joining to it is fine, and the app has always
+    done so, but *aggregating* is not, so the collapsed query could only ever
+    ORDER BY a bare rank and never multiply it by anything.
 
-    ``food_id`` is the canonical variant's — a real, loggable food — so an app
-    that ignores n_foods still behaves, it just always logs the canonical
-    preparation.
+    The score is multiplicative because the bm25 spread is query-dependent —
+    "chicken" spans 0.37, "chicken brea" spans 2.35 — so an additive bonus
+    tuned on one query is either invisible or overwhelming on another.
+
+    Three ways to break it, all previously found the hard way:
+
+    * **bm25 is negative**, so a bigger multiplier is a smaller number and the
+      ORDER BY stays ascending. The multiplier's floor is
+      1 + 1.0*0.05 - 0.3 = 0.75: it never reaches zero, which would flip the
+      sign and invert the ranking.
+    * **``prep_type IS 'cooked'``, never ``=``.** Around half of all items have
+      no prep_type; ``=`` yields NULL, NULL poisons the whole product, and NULL
+      sorts first.
+    * **Sort before the LIMIT.** Re-ranking a limited pool in Dart cannot work:
+      "Cooked pasta" sat at bm25 ranks 26 and 41-45 of 182 for `pasta`.
+
+    Parameters are numbered, not positional: ?1 recency cutoff, ?2 MATCH
+    expression, ?3 the raw query text for the exact-name bonus, ?4 limit.
+    Numbered because a positional ? binds in SQL-text order, which is not the
+    order any sane caller passes them in.
+
+    Table names are unqualified, so this runs on the app's connection (the log
+    database as main with the catalog ATTACH-ed, where `foods`/`food_fts` fall
+    through to the catalog) and on a catalog opened directly with a log
+    ATTACH-ed beside it. `log_entries` has to exist either way — the recency
+    term is a LEFT JOIN, so an empty one costs nothing but a missing one is an
+    error.
     """
+    penalty = " OR ".join(
+        f"lower(coalesce(m.display_name, '') || ' ' || c.description) LIKE '{t}'"
+        for t in _PENALTY_TERMS
+    )
     return f"""
-        SELECT c.food_id, coalesce(c.display_name, c.description) AS name, c.emoji,
-               c.kcal_100g, c.protein_100g, c.fat_100g, c.carb_100g,
-               m.n_foods, m.variable_fat, min(s.rank) AS rank
-        FROM (SELECT rowid, rank FROM {fts}
-              WHERE {fts} MATCH ?{weights}) s
-        JOIN foods v        ON v.food_id = s.rowid
-        JOIN merged_foods m ON m.merged_food_id = v.merged_food_id
-        JOIN foods c        ON c.food_id = m.merged_food_id
-        GROUP BY m.merged_food_id
-        ORDER BY rank
-        LIMIT ?
+        SELECT s.rowid AS food_id, coalesce(m.display_name, c.description) AS name,
+               m.emoji, c.kcal_100g, c.protein_100g, c.fat_100g, c.carb_100g,
+               c.serving_g, c.serving_label, m.n_foods, m.n_preps
+        FROM {fts} s
+        JOIN merged_foods m ON m.merged_food_id = s.rowid
+        JOIN foods c        ON c.food_id        = s.rowid
+        LEFT JOIN (SELECT cf.merged_food_id AS mid, count(*) AS n
+                     FROM log_entries l
+                     JOIN foods cf ON cf.food_id = l.food_id
+                    WHERE l.deleted = 0 AND l.food_id IS NOT NULL
+                      AND l.local_date >= ?1
+                    GROUP BY cf.merged_food_id) r ON r.mid = s.rowid
+        WHERE {fts} MATCH ?2
+        ORDER BY {rank} * (1
+            + 1.0 * coalesce(m.commonness, 0.4)
+            + 0.3 * (m.prep_type IS 'cooked')
+            + 1.5 * min(coalesce(r.n, 0), 3) / 3.0
+            + 0.6 * (lower(coalesce(m.display_name, c.description)) = lower(?3))
+            - 0.3 * ({penalty}))
+        LIMIT ?4
     """
 
 
@@ -479,16 +536,21 @@ def search_sql() -> tuple[str, str]:
     hardcoded in the app so the bm25 weights live next to the index that
     defines the columns they weight.
 
-    Both return one row per merged item — see :func:`_collapse_sql`. The
-    variants behind a row are ``SELECT * FROM foods WHERE merged_food_id = ?``.
+    Both return one row per merged item. ``food_id`` is the item's default
+    preparation — a real, loggable food — so an app that ignores n_preps still
+    behaves, it just always logs that one. The preparations behind a row are
+    ``SELECT * FROM foods WHERE merged_food_id = ? AND food_id = prep_id``.
 
     Primary: pass an FTS5 prefix expression, e.g. 'chick* brea*'.
     Fallback: run only when the primary returns too few rows; pass the query's
     trigrams OR-ed together, e.g. '"chi" OR "hik" OR "ikc" OR "kce" OR "cen"'.
+    Its hits are appended after the primary's rather than merged — the two
+    bm25 magnitudes are not comparable.
     """
     return (
-        _collapse_sql("food_fts", " AND rank MATCH 'bm25(10.0, 3.0, 1.0)'"),
-        _collapse_sql("food_fts_trgm"),  # one column, so default weights are bm25()
+        # name, prep, aka, members
+        _search_sql("food_fts", "bm25(food_fts, 10.0, 2.0, 3.0, 1.0)"),
+        _search_sql("food_fts_trgm", "bm25(food_fts_trgm)"),  # one column, default weight
     )
 
 
@@ -632,45 +694,58 @@ def build(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
         """
     )
 
+    # display_name / emoji / commonness are denormalized DOWN from the item and
+    # prep_type across from the preparation, so every food carries the strings
+    # the app shows. The log snapshots them per food (see nutrients.dart), and
+    # a logged entry has to keep reading the same way whether it came from the
+    # catalog, a custom food or a recipe.
     con.execute(
         f"""
         CREATE OR REPLACE TABLE app_foods AS
         SELECT f.fdc_id AS food_id,
                f.description,
-               f.display_name,
-               f.emoji,
-               f.prep_type,
-               f.variable_fat,
+               m.display_name,
+               m.emoji,
+               pp.prep_type,
+               m.variable_fat,
                f.food_category AS category,
                f.data_type,
-               f.commonness,
+               m.commonness,
                n.energy_kcal AS kcal_100g,
                n.protein_g   AS protein_100g,
                n.fat_g       AS fat_100g,
                n.carb_g      AS carb_100g,
                p.gram_weight AS serving_g,
                p.label       AS serving_label,
-               coalesce(f.merged_food_id, f.fdc_id) AS merged_food_id
+               coalesce(f.merged_food_id, f.fdc_id) AS merged_food_id,
+               coalesce(f.prep_id, f.fdc_id) AS prep_id
         FROM foods f
+        LEFT JOIN merged_foods m ON m.merged_food_id = f.merged_food_id
+        LEFT JOIN merged_preps pp ON pp.prep_id = f.prep_id
         LEFT JOIN app_food_nutrition n ON n.food_id = f.fdc_id
         LEFT JOIN app_food_portions p ON p.food_id = f.fdc_id AND p.seq = 1
         """
     )
 
-    # Stage 6b's groups. Total by construction: a food Stage 6b never placed —
-    # or every food, if Stage 6b has not run at all — gets a singleton group
+    # Stage 3b's items. Total by construction: a food Stage 3b never placed —
+    # or every food, if Stage 3b has not run at all — gets a singleton item
     # here, so the join from foods can never drop a row and the export can
-    # never ship a catalog pointing at groups that do not exist. Pairs with the
+    # never ship a catalog pointing at items that do not exist. Pairs with the
     # coalesce above, which is the other half of the same guarantee.
+    #
+    # prep_type is the DEFAULT preparation's, which is the one whose macros the
+    # search row shows; it feeds the ranking's cooked-food bonus.
     con.execute(
         """
         CREATE OR REPLACE TABLE app_merged_foods AS
         SELECT m.merged_food_id, m.display_name, m.emoji,
-               m.food_category AS category, m.variable_fat, m.n_foods
+               (SELECT pp.prep_type FROM merged_preps pp
+                 WHERE pp.prep_id = m.merged_food_id) AS prep_type,
+               m.food_category AS category, m.commonness,
+               m.variable_fat, m.n_foods, m.n_preps
         FROM merged_foods m
         UNION ALL
-        SELECT f.fdc_id, coalesce(f.display_name, f.description), f.emoji,
-               f.food_category, FALSE, 1
+        SELECT f.fdc_id, NULL, NULL, NULL, f.food_category, NULL, FALSE, 1, 1
         FROM foods f WHERE f.merged_food_id IS NULL
         """
     )
@@ -704,21 +779,58 @@ def build(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
 
     con.execute(f"CREATE OR REPLACE TABLE app_food_pairs AS {_pairs_sql()}")
 
+    # One row per merged item, keyed by merged_food_id — see FTS_DDL for why
+    # the granularity matters and why `members` is a deduplicated token set
+    # rather than the member descriptions concatenated.
+    #
+    # list_distinct over the split tokens, not string_agg: an 18-member group
+    # would otherwise carry an 18x longer document than a 1-member one and lose
+    # every ranking to it on bm25's length normalization.
     con.execute(
         f"""
         CREATE OR REPLACE TABLE app_food_fts AS
-        SELECT f.fdc_id AS food_id,
-               coalesce(f.display_name, f.description) AS name,
-               f.description,
-               -- concat_ws drops the NULL side, so a food with only one of the
+        WITH members AS (
+            SELECT af.merged_food_id,
+                   string_agg(DISTINCT tok, ' ') AS members,
+                   -- the default preparation's own text is what the user sees,
+                   -- so it is the only one the typo fallback indexes
+                   any_value(af.description) FILTER (
+                       WHERE af.food_id = af.merged_food_id) AS default_desc
+            FROM app_foods af,
+                 UNNEST(string_split(lower(regexp_replace(
+                     af.description, '[^a-zA-Z ]', ' ', 'g')), ' ')) AS t(tok)
+            WHERE length(tok) > 1
+            GROUP BY af.merged_food_id
+        ),
+        aka AS (
+            SELECT af.merged_food_id, string_agg(DISTINCT a.aka, '; ') AS aka
+            FROM app_foods af JOIN ({_aka_cte()}) a ON a.fdc_id = af.food_id
+            WHERE coalesce(a.aka, '') <> ''
+            GROUP BY af.merged_food_id
+        ),
+        preps AS (
+            SELECT merged_food_id, string_agg(DISTINCT prep_type, ' ') AS prep
+            FROM merged_preps WHERE prep_type IS NOT NULL
+            GROUP BY merged_food_id
+        )
+        SELECT m.merged_food_id AS food_id,
+               coalesce(m.display_name, mb.default_desc) AS name,
+               coalesce(p.prep, '') AS prep,
+               -- concat_ws drops the NULL side, so an item with only one of the
                -- two still gets a clean value (and '' when it has neither)
-               concat_ws('; ', nullif(a.aka, ''), nullif(f.keywords, '')) AS aka,
-               -- trgm is the typo fallback for what the user *sees*; keywords
-               -- stay out of it, where they would only add wrong-food noise
-               lower(concat_ws(' ', coalesce(f.display_name, f.description),
-                               coalesce(a.aka, ''))) AS trgm
-        FROM foods f
-        LEFT JOIN ({_aka_cte()}) a ON a.fdc_id = f.fdc_id
+               concat_ws('; ', nullif(a.aka, ''), nullif(mf.keywords, '')) AS aka,
+               coalesce(mb.members, '') AS members,
+               -- trgm is the typo fallback for what the user *sees*: the item's
+               -- name, its preparation labels and its synonyms. Keywords and
+               -- member descriptions stay out — neither is on screen, and both
+               -- would only add wrong-food noise to a fuzzy match.
+               lower(concat_ws(' ', coalesce(m.display_name, mb.default_desc),
+                               coalesce(p.prep, ''), coalesce(a.aka, ''))) AS trgm
+        FROM app_merged_foods m
+        LEFT JOIN merged_foods mf ON mf.merged_food_id = m.merged_food_id
+        LEFT JOIN members mb ON mb.merged_food_id = m.merged_food_id
+        LEFT JOIN aka a ON a.merged_food_id = m.merged_food_id
+        LEFT JOIN preps p ON p.merged_food_id = m.merged_food_id
         """
     )
 
@@ -766,8 +878,9 @@ def export_sqlite(
     finally:
         con.execute("DETACH app")
 
+    # rowid is merged_food_id here, not food_id — one row per item.
     fts_rows = con.execute(
-        "SELECT food_id, name, description, aka, trgm FROM app_food_fts"
+        "SELECT food_id, name, prep, aka, members, trgm FROM app_food_fts"
     ).fetchall()
 
     counts: dict[str, int] = {}
@@ -775,12 +888,12 @@ def export_sqlite(
         for ddl in FTS_DDL:
             sq.execute(ddl)
         sq.executemany(
-            "INSERT INTO food_fts(rowid, name, description, aka) VALUES (?,?,?,?)",
-            [(r[0], r[1], r[2], r[3]) for r in fts_rows],
+            "INSERT INTO food_fts(rowid, name, prep, aka, members) VALUES (?,?,?,?,?)",
+            [(r[0], r[1], r[2], r[3], r[4]) for r in fts_rows],
         )
         sq.executemany(
             "INSERT INTO food_fts_trgm(rowid, txt) VALUES (?,?)",
-            [(r[0], r[4]) for r in fts_rows],
+            [(r[0], r[5]) for r in fts_rows],
         )
         for ddl in APP_INDEXES:
             sq.execute(ddl)

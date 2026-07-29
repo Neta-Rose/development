@@ -7,7 +7,12 @@ part 'database.g.dart';
 
 /// Bump when `database/foods.sqlite` is replaced. The catalog is read-only and
 /// upgraded wholesale, so a new file name is the entire upgrade story.
-const catalogVersion = 2;
+///
+/// v3 moved search to merged-item granularity: `food_fts.rowid` is now
+/// `merged_food_id`, `merged_foods` carries the display name/emoji/commonness,
+/// and `foods` gained `prep_id`. An old app against a v3 file would read
+/// columns that moved, which is exactly what this constant prevents.
+const catalogVersion = 3;
 
 @DriftDatabase(include: {'log.drift'})
 class AppDatabase extends _$AppDatabase {

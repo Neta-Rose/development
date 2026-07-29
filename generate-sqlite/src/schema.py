@@ -1,9 +1,22 @@
-"""Pydantic models + the JSON schema enforced on LLM output (Stage 4).
+"""Pydantic models + the JSON schemas enforced on LLM output.
 
-The JSON schema is sent to OpenRouter via ``response_format`` (json_schema,
-strict) and, for models that don't support structured outputs, reused as the
-parameter schema of a forced tool call. Every response is additionally
-validated with :class:`EnrichmentResult` before anything is persisted.
+Each schema is sent to OpenRouter via ``response_format`` (json_schema, strict)
+and, for models that don't support structured outputs, reused as the parameter
+schema of a forced tool call. Every response is additionally validated with the
+matching pydantic model before anything is persisted.
+
+Two passes, two shapes:
+
+* **Stage 3b-1** (:class:`CanonResult` / :class:`CanonBatch`) asks what a food
+  *is* — one answer per USDA row, many rows per request. This runs before
+  clustering, and its ``base`` field is what clustering groups on.
+* **Stage 4** (:class:`GroupResult`) asks how to *present* an item once it has
+  been grouped — one item per request.
+
+Both address their subjects by a 0-based index the model echoes back, never by
+fdc_id: the model never handles a 7-digit number it could mangle, and the echo
+turns a mis-mapped answer into a re-send instead of silently putting one food's
+answer on another.
 """
 from __future__ import annotations
 
@@ -50,28 +63,91 @@ def is_emoji(value: str) -> bool:
 PrepType = Literal[
     "raw", "cooked", "roasted", "baked", "boiled", "fried", "grilled",
     "steamed", "braised", "broiled", "dried", "canned", "frozen", "smoked",
-    "toasted",
+    "toasted", "poached", "scrambled", "stewed", "microwaved", "sauteed",
+    "blanched", "pickled", "cured", "breaded", "drained",
 ]
 
 # Keep the Literal and the config enum in lockstep.
 assert set(PrepType.__args__) == set(config.PREP_TYPES)
 
 
-class EnrichmentResult(BaseModel):
-    """Validated LLM output for a single food item.
+FoodKind = Literal["ingredient", "dish"]
 
-    No ``fdc_id``: the request carries exactly one food, so there is nothing to
-    address and the model never handles a 7-digit number it could mangle. No
-    ``notes`` either — the reviewer never saw them (they went to audit_log
-    alone), so they were output tokens spent on nobody.
+assert set(FoodKind.__args__) == set(config.FOOD_KINDS)
+
+
+class CanonResult(BaseModel):
+    """What one USDA row *is*, extracted from its description (Stage 3b-1).
+
+    The three fields are the three questions the old threshold-based clustering
+    could not answer, and separating them is the whole design:
+
+    * ``base`` is identity. Everything the description says about how the food
+      was cooked, graded or trimmed has been removed, so two rows of the same
+      food produce the same string however differently they were worded — and
+      two different foods produce different strings however similar their
+      wording. Clustering is then an exact match on it.
+    * ``kind`` is the dish/ingredient split, which no amount of word overlap
+      recovers. It is a hard guard on grouping, not a hint.
+    * ``prep`` is the preparation, read off the description rather than
+      inferred from a macro contrast. That inversion is what stops the same
+      food recorded in two USDA databases with different macros from becoming
+      two preparations nobody can name.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    i: int = Field(ge=0)
+    base: str = Field(min_length=1)
+    kind: FoodKind
+    prep: Optional[PrepType] = None
+
+    @field_validator("base")
+    @classmethod
+    def _tidy(cls, v: str) -> str:
+        """Collapse whitespace and drop stray punctuation.
+
+        Cleaned rather than rejected: "Rice, white," is the right answer typed
+        untidily, and re-sending 40 foods to get one comma back is paying twice
+        for punctuation. Nothing left after tidying IS a wrong answer — checked
+        here rather than by min_length, which sees the untidied value.
+        """
+        tidied = " ".join(v.split()).strip(" ,;")
+        if not tidied:
+            raise ValueError(f"no identity in {v!r}")
+        return tidied
+
+
+class CanonBatch(BaseModel):
+    """One request's worth of canonicalizations.
+
+    The batch is the unit because consistency is: the candidates in one request
+    are description-adjacent, so the model sees "Rice, white, raw" beside
+    "Rice, white, steamed" and writes one base name for both. Asking per food
+    would be the same token count and would lose exactly that.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    foods: list[CanonResult] = Field(min_length=1)
+
+
+class GroupResult(BaseModel):
+    """Validated LLM output for one merged item (Stage 4).
+
+    Presentation only. Everything factual about the item was settled before
+    this request was built: ``variable_fat`` is measured over the group,
+    ``prep_type`` was read off each member's description in Stage 3b-1, and the
+    membership itself is a base_name match. No ``merged_food_id`` either — the
+    request carries exactly one item, so there is nothing to address.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     display_name: str = Field(min_length=1)
     emoji: str = Field(min_length=1)
-    prep_type: Optional[PrepType] = None
-    variable_fat: bool
+    commonness: float = Field(ge=0.0, le=1.0)
+    keywords: list[str] = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
 
     @field_validator("emoji")
@@ -81,107 +157,13 @@ class EnrichmentResult(BaseModel):
             raise ValueError(f"expected a single food emoji, got {v!r}")
         return v
 
-
-# NOTE: strict structured-output mode (OpenAI-style, which OpenRouter proxies)
-# requires every property to appear in "required".
-ENRICHMENT_JSON_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "display_name": {"type": "string"},
-        "emoji": {"type": "string"},
-        "prep_type": {
-            "type": ["string", "null"],
-            "enum": [*config.PREP_TYPES, None],
-        },
-        "variable_fat": {"type": "boolean"},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-    },
-    "required": ["display_name", "emoji", "prep_type", "variable_fat", "confidence"],
-    "additionalProperties": False,
-}
-
-RESPONSE_FORMAT: dict = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "food_enrichment",
-        "strict": True,
-        "schema": ENRICHMENT_JSON_SCHEMA,
-    },
-}
-
-# Fallback for models without json_schema support: force a tool call whose
-# parameters are the same schema.
-ENRICHMENT_TOOL: dict = {
-    "type": "function",
-    "function": {
-        "name": "record_enrichment",
-        "description": "Record the enrichment result for one food item.",
-        "parameters": ENRICHMENT_JSON_SCHEMA,
-    },
-}
-
-# --------------------------------------------------------------------------
-# Stage 4b: the commonness pass — a separate, single-number enrichment
-# --------------------------------------------------------------------------
-class CommonnessResult(BaseModel):
-    """How commonly a food is eaten / stocked in home kitchens, 0..1.
-
-    The field is called ``c``, not ``commonness``: this is a one-number pass
-    whose only job is to be cheap, and the key is repeated on every one of
-    ~15k responses.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    c: float = Field(ge=0.0, le=1.0)
-
-
-COMMONNESS_JSON_SCHEMA: dict = {
-    "type": "object",
-    "properties": {"c": {"type": "number", "minimum": 0, "maximum": 1}},
-    "required": ["c"],
-    "additionalProperties": False,
-}
-
-COMMONNESS_RESPONSE_FORMAT: dict = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "food_commonness",
-        "strict": True,
-        "schema": COMMONNESS_JSON_SCHEMA,
-    },
-}
-
-COMMONNESS_TOOL: dict = {
-    "type": "function",
-    "function": {
-        "name": "record_commonness",
-        "description": "Record how commonly one food is eaten (0-1).",
-        "parameters": COMMONNESS_JSON_SCHEMA,
-    },
-}
-
-# --------------------------------------------------------------------------
-# Stage 4c: the keywords pass — search terms, one list per food
-# --------------------------------------------------------------------------
-class KeywordsResult(BaseModel):
-    """Search keywords for one food.
-
-    The field is ``k`` for the same reason CommonnessResult's is ``c``: the key
-    rides on every one of ~15k responses.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    k: list[str] = Field(min_length=1)
-
-    @field_validator("k")
+    @field_validator("keywords")
     @classmethod
     def _clean(cls, v: list[str]) -> list[str]:
         """Lowercase, trim, dedupe (dict preserves order), cap the count.
 
         Cleaned rather than rejected: a duplicate or a stray capital is not a
-        wrong answer, and re-sending the row to get the same keywords back in
+        wrong answer, and re-sending the item to get the same keywords back in
         lowercase would be paying twice for punctuation. A term longer than
         LONGEST_KEYWORD is a sentence, not a search term — that IS a wrong
         answer, so it is dropped.
@@ -196,29 +178,77 @@ class KeywordsResult(BaseModel):
         return out[: config.MAX_KEYWORDS]
 
 
-# No minItems/maxItems: strict structured-output mode rejects them. The count
-# is asked for in the instructions and capped in _clean above.
-KEYWORDS_JSON_SCHEMA: dict = {
+# NOTE: strict structured-output mode (OpenAI-style, which OpenRouter proxies)
+# requires every property to appear in "required", and rejects minItems /
+# maxItems — the keyword count lives in the instructions and in _clean's cap
+# instead. Nested objects are inlined rather than referenced: $ref is the one
+# construct strict mode does not reliably accept.
+GROUP_JSON_SCHEMA: dict = {
     "type": "object",
-    "properties": {"k": {"type": "array", "items": {"type": "string"}}},
-    "required": ["k"],
+    "properties": {
+        "display_name": {"type": "string"},
+        "emoji": {"type": "string"},
+        "commonness": {"type": "number", "minimum": 0, "maximum": 1},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": ["display_name", "emoji", "commonness", "keywords", "confidence"],
     "additionalProperties": False,
 }
 
-KEYWORDS_RESPONSE_FORMAT: dict = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "food_keywords",
-        "strict": True,
-        "schema": KEYWORDS_JSON_SCHEMA,
+CANON_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "foods": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "i": {"type": "integer"},
+                    "base": {"type": "string"},
+                    "kind": {"type": "string", "enum": list(config.FOOD_KINDS)},
+                    "prep": {
+                        "type": ["string", "null"],
+                        "enum": [*config.PREP_TYPES, None],
+                    },
+                },
+                "required": ["i", "base", "kind", "prep"],
+                "additionalProperties": False,
+            },
+        },
     },
+    "required": ["foods"],
+    "additionalProperties": False,
 }
 
-KEYWORDS_TOOL: dict = {
-    "type": "function",
-    "function": {
-        "name": "record_keywords",
-        "description": "Record the search keywords for one food.",
-        "parameters": KEYWORDS_JSON_SCHEMA,
-    },
-}
+
+def _response_format(name: str, json_schema: dict) -> dict:
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": name, "strict": True, "schema": json_schema},
+    }
+
+
+def _tool(name: str, description: str, json_schema: dict) -> dict:
+    """Fallback for models without json_schema support: a forced tool call
+    whose parameters are the same schema."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name, "description": description, "parameters": json_schema,
+        },
+    }
+
+
+RESPONSE_FORMAT = _response_format("food_group_enrichment", GROUP_JSON_SCHEMA)
+ENRICHMENT_TOOL = _tool(
+    "record_enrichment", "Record the presentation fields for one food item.",
+    GROUP_JSON_SCHEMA,
+)
+
+CANON_RESPONSE_FORMAT = _response_format("food_canonicalization", CANON_JSON_SCHEMA)
+CANON_TOOL = _tool(
+    "record_canonicalization",
+    "Record the base name, kind and preparation of each food in the batch.",
+    CANON_JSON_SCHEMA,
+)

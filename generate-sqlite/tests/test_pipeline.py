@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import abbrev, brand_detect, config, merge, schema, store  # noqa: E402
+from src import abbrev, brand_detect, cluster, config, schema, store  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -85,64 +85,140 @@ def test_only_sr_legacy_flagged():
 
 
 # --------------------------------------------------------------------------
-# Stage 4: schema
+# Stage 3b-1 / Stage 4: schema
 # --------------------------------------------------------------------------
+def _group_result(**overrides):
+    base = {
+        "display_name": "Milk", "emoji": "🥛", "commonness": 0.9,
+        "keywords": ["dairy"], "confidence": 0.9,
+    }
+    return schema.GroupResult.model_validate(base | overrides)
+
+
+def _canon_batch(**overrides):
+    base = {"foods": [{"i": 0, "base": "white rice", "kind": "ingredient", "prep": "raw"}]}
+    return schema.CanonBatch.model_validate(base | overrides)
+
+
 def test_schema_accepts_valid():
-    result = schema.EnrichmentResult.model_validate(
-        {"display_name": "Milk", "emoji": "🥛", "prep_type": None,
-         "variable_fat": True, "confidence": 0.9}
-    )
-    assert result.prep_type is None
+    result = _group_result(display_name="Almond granola bar")
+    assert result.display_name == "Almond granola bar" and result.emoji == "🥛"
+
+    batch = _canon_batch(foods=[
+        {"i": 0, "base": "chicken thigh", "kind": "ingredient", "prep": "roasted"},
+        {"i": 1, "base": "fried rice", "kind": "dish", "prep": None},
+    ])
+    assert [f.kind for f in batch.foods] == ["ingredient", "dish"]
+    assert batch.foods[1].prep is None
 
 
 def test_schema_rejects_bad_enum_and_extra_keys():
     with pytest.raises(Exception):
-        schema.EnrichmentResult.model_validate(
-            {"display_name": "x", "emoji": "🥛", "prep_type": "microwaved",
-             "variable_fat": False, "confidence": 0.5}
-        )
+        _group_result(extra=1)
+    with pytest.raises(Exception):  # merged_food_id is not part of the contract
+        _group_result(merged_food_id=1)
+    # canonicalization: kind and prep are both closed enums
     with pytest.raises(Exception):
-        schema.EnrichmentResult.model_validate(
-            {"display_name": "x", "emoji": "🥛", "prep_type": None,
-             "variable_fat": False, "confidence": 0.5, "extra": 1}
-        )
-    # fdc_id and notes are no longer part of the contract
+        _canon_batch(foods=[{"i": 0, "base": "rice", "kind": "meal", "prep": None}])
     with pytest.raises(Exception):
-        schema.EnrichmentResult.model_validate(
-            {"fdc_id": 1, "display_name": "x", "emoji": "🥛", "prep_type": None,
-             "variable_fat": False, "confidence": 0.5}
-        )
+        _canon_batch(foods=[{"i": 0, "base": "rice", "kind": "dish", "prep": "spatchcocked"}])
+    with pytest.raises(Exception):  # an empty identity is a wrong answer
+        _canon_batch(foods=[{"i": 0, "base": "", "kind": "dish", "prep": None}])
+    with pytest.raises(Exception):
+        _canon_batch(foods=[])
 
 
-def test_user_payload_omits_absent_optional_keys():
-    """Optional signal is sent when present and costs nothing when absent."""
+def test_canon_base_is_tidied_not_rejected():
+    """Untidy punctuation is the right answer typed badly; re-sending 40 foods
+    to get one comma back would be paying twice for it."""
+    batch = _canon_batch(foods=[
+        {"i": 0, "base": "  white   rice, ", "kind": "ingredient", "prep": None},
+    ])
+    assert batch.foods[0].base == "white rice"
+    with pytest.raises(Exception):  # ... but nothing left after tidying IS wrong
+        _canon_batch(foods=[{"i": 0, "base": " , ", "kind": "dish", "prep": None}])
+
+
+def test_schema_cleans_keywords():
+    """Duplicates, casing and blanks are cleaned; a sentence is dropped.
+
+    Re-sending an item to get the same keywords back in lowercase would be
+    paying twice for punctuation, so these are fixed rather than rejected.
+    """
+    result = _group_result(
+        keywords=["Fettuccine", "fettuccine", " parmesan ", "", "italian", "a" * 60]
+    )
+    assert result.keywords == ["fettuccine", "parmesan", "italian"]
+    with pytest.raises(Exception):  # nothing usable at all IS a wrong answer
+        _group_result(keywords=["", "a" * 60])
+
+
+def test_group_payload_leads_with_the_settled_identity():
+    """Stage 4 is told what the food IS and asked only how to present it.
+
+    base/kind lead the payload because the whole prompt is written around not
+    second-guessing them, and no fdc_id is ever sent.
+    """
     from src import enrich
 
     bare = {
-        "description": "Broccoli, raw", "food_category": "Vegetables",
-        "data_type": "foundation_food", "common_name": None, "extra_desc": None,
-        "fat_percentage": None, "brand_flagged": False,
+        "food_category": "Vegetables", "common_name": None, "extra_desc": None,
+        "brand_flagged": False, "variable_fat": False,
+        "base_name": "broccoli", "food_kind": "ingredient",
+        "preps": [{"seq": 0, "prep_id": 1234567, "descs": ["Broccoli, raw"],
+                   "prep_type": "raw",
+                   "protein_g": 2.82, "carb_g": 6.64, "fat_g": 0.37}],
     }
-    # data_type, fat_percentage and brand_flagged stay pipeline-side: set here,
+    # brand_flagged, variable_fat and prep_id stay pipeline-side: set here,
     # never sent
-    assert enrich.build_item(bare) == {
-        "desc": "Broccoli, raw", "cat": "Vegetables",
+    assert enrich.build_group(bare) == {
+        "base": "broccoli", "kind": "ingredient", "cat": "Vegetables",
+        "p": [{"prep": "raw", "m": [2.8, 6.6, 0.4], "d": ["Broccoli, raw"]}],
     }
 
     rich = bare | {
-        "description": "Frankfurter, beef, low fat", "data_type": "sr_legacy_food",
+        "base_name": "beef frankfurter", "food_kind": "dish",
         "common_name": "hot dog, wiener, frank", "extra_desc": "all types",
-        "fat_percentage": 20.0, "brand_flagged": True,
+        "brand_flagged": True,
+        "preps": [
+            {"seq": 0, "prep_id": 9876541, "descs": ["Frankfurter, beef"],
+             "prep_type": None, "protein_g": 11.7, "carb_g": 4.3, "fat_g": 26.7},
+            {"seq": 1, "prep_id": 9876542, "descs": ["Frankfurter, beef, unheated"],
+             "prep_type": "cooked", "protein_g": 10.2, "carb_g": 4.0, "fat_g": 20.1},
+        ],
     }
-    assert enrich.build_item(rich) == {
-        "desc": "Frankfurter, beef, low fat", "cat": "Vegetables",
-        "aka": "hot dog, wiener, frank", "also": "all types",
-    }
+    payload = enrich.build_group(rich)
+    assert payload["aka"] == "hot dog, wiener, frank"
+    assert payload["also"] == "all types"
+    assert [p["prep"] for p in payload["p"]] == [None, "cooked"]
 
-    # the wire payload is that object, serialized compactly and with no id
-    wire = json.dumps(enrich.build_item(rich), ensure_ascii=False, separators=(",", ":"))
-    assert json.loads(wire) == enrich.build_item(rich)
-    assert '"desc":' in wire
+    # the wire payload is that object, serialized compactly and carrying no id
+    wire = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    assert json.loads(wire) == payload
+    assert "987654" not in wire, "prep_id must never be sent"
+
+
+def test_canon_payload_sends_identity_evidence_and_no_macros():
+    """The canonicalization request carries the text signals and nothing
+    numeric — macros are what the old clustering got identity wrong with."""
+    from src import canon
+
+    batch = [
+        {"fdc_id": 169712, "description": "Rice, white, steamed, Chinese restaurant",
+         "food_category": "Cereal Grains and Pasta", "common_name": None,
+         "extra_desc": None, "ingredients": None},
+        {"fdc_id": 2707232, "description": "Egg omelet, with cheese",
+         "food_category": "Eggs and omelets", "common_name": "omelette",
+         "extra_desc": "fat added", "ingredients": "Eggs | Cheese | Oil"},
+    ]
+    assert canon.build_batch(batch) == {"foods": [
+        {"i": 0, "d": "Rice, white, steamed, Chinese restaurant",
+         "cat": "Cereal Grains and Pasta"},
+        {"i": 1, "d": "Egg omelet, with cheese", "cat": "Eggs and omelets",
+         "aka": "omelette", "also": "fat added", "ing": "Eggs | Cheese | Oil"},
+    ]}
+    wire = json.dumps(canon.build_batch(batch), separators=(",", ":"))
+    assert "169712" not in wire and "2707232" not in wire
 
 
 # --------------------------------------------------------------------------
@@ -150,21 +226,61 @@ def test_user_payload_omits_absent_optional_keys():
 # --------------------------------------------------------------------------
 @pytest.fixture()
 def con(tmp_path):
+    """Two foods that cluster into two items, one of them with two preparations.
+
+    Stage 3b runs here because everything downstream of it addresses merged
+    items, not foods: without it the enrichment queue is empty and every store
+    test below has nothing to write to.
+    """
     c = store.connect(tmp_path / "test.duckdb")
     store.init_db(c)
     df = pl.DataFrame(
         {
-            "fdc_id": [1, 2],
-            "data_type": ["sr_legacy_food", "survey_fndds_food"],
-            "food_category": ["Beef Products", "Vegetables"],
-            "description": ["Beef, ground, 80% lean meat / 20% fat, raw", "Avocado, raw"],
-            "fat_g": [20.0, 15.0],
-            "source_version": ["2018-04", "2024-10"],
+            "fdc_id": [1, 2, 3],
+            "data_type": ["sr_legacy_food", "survey_fndds_food", "sr_legacy_food"],
+            "food_category": ["Beef Products", "Vegetables", "Beef Products"],
+            "description": [
+                "Beef, ground, 80% lean meat / 20% fat, raw",
+                "Avocado, raw",
+                "Beef, ground, 80% lean meat / 20% fat, cooked, pan-browned",
+            ],
+            "fat_g": [20.0, 15.0, 15.0],
+            "source_version": ["2018-04", "2024-10", "2018-04"],
         }
     )
     store.upsert_ingest(c, df)
     abbrev.run(c)  # expand abbreviations, as the run order would
+    c.execute(
+        "INSERT INTO food_nutrients (fdc_id, nutrient_id, amount) VALUES "
+        "(1, 1003, 17.4), (1, 1005, 0.0), (1, 1004, 20.0), "
+        "(2, 1003, 2.0), (2, 1005, 8.5), (2, 1004, 15.0), "
+        "(3, 1003, 25.8), (3, 1005, 0.0), (3, 1004, 29.6)"
+    )
+    # Stage 3b-1's output, stubbed. Clustering groups on it, so without it
+    # every food here would be its own item and the two-preparation case the
+    # tests below need would not exist.
+    canonicalize(c, {
+        1: ("ground beef", "ingredient", "raw"),
+        2: ("avocado", "ingredient", "raw"),
+        3: ("ground beef", "ingredient", "cooked"),
+    })
+    cluster.run(c)
     return c
+
+
+def canonicalize(con, by_fdc_id):
+    """Stamp Stage 3b-1 answers on foods: {fdc_id: (base, kind, prep)}."""
+    for fdc_id, (base, kind, prep) in by_fdc_id.items():
+        store.apply_canonicalization(
+            con, fdc_id=fdc_id, base_name=base, food_kind=kind, prep_label=prep,
+            model="test/stub",
+        )
+
+
+@pytest.fixture()
+def items(con):
+    """The enrichment queue, keyed by merged_food_id."""
+    return {r["merged_food_id"]: r for r in store.select_enrichment_candidates(con).to_dicts()}
 
 
 def test_routing_thresholds():
@@ -175,94 +291,125 @@ def test_routing_thresholds():
 
 
 def test_cross_checks():
-    issues = store.cross_check(
-        prep_type="raw", variable_fat=True, fat_percentage=None,
-        description="Avocado, raw", food_category="Fruits",
-    )
-    assert any("variable_fat" in i for i in issues)
-    issues2 = store.cross_check(
-        prep_type="raw", variable_fat=True, fat_percentage=20.0,
-        description="Beef, ground, 80% lean meat / 20% fat, raw",
-        food_category="Beef Products",
-    )
-    assert issues2 == []
+    ok = dict(display_name="Chicken thigh", emoji="🍗", base_name="chicken thigh")
+    assert store.cross_check(**ok) == []
+    assert store.cross_check(**ok | {"emoji": "not an emoji"})
+
+    # A preparation word in the name renders twice — the preparation is joined
+    # back at display time.
+    assert store.cross_check(
+        display_name="Roasted chicken thigh", emoji="🍗", base_name="chicken thigh")
+    # ... unless the identity itself carries it: "fried rice" is a food called
+    # that, and base_name is what says so.
+    assert store.cross_check(
+        display_name="Fried rice", emoji="🍚", base_name="fried rice") == []
+
+    # A name that dropped a qualifier is how both granola bars came back as
+    # "Granola bar" — two items the user cannot tell apart.
+    assert store.cross_check(
+        display_name="Granola bar", emoji="🍫", base_name="almond granola bar")
+    assert store.cross_check(
+        display_name="Almond granola bar", emoji="🍫", base_name="almond granola bar") == []
 
 
-def test_enrichment_upsert_and_resume(con):
+def test_duplicate_display_names_are_reported(con):
+    """Two items sharing a name is always a defect: they have different
+    base_names by construction, so the naming lost information."""
+    ids = store.select_enrichment_candidates(con)["merged_food_id"].to_list()
+    for merged_food_id in ids:
+        store.apply_enrichment(
+            con, merged_food_id=merged_food_id, display_name="Same name", emoji="🥩",
+            commonness=0.5, keywords="kw", confidence=0.9, review_status="auto_approved",
+        )
+    dupes = store.duplicate_display_names(con)
+    assert len(dupes) == 1 and dupes["n"][0] == len(ids)
+
+    store.apply_enrichment(
+        con, merged_food_id=ids[0], display_name="A different name", emoji="🥑",
+        commonness=0.5, keywords="kw", confidence=0.9, review_status="auto_approved",
+    )
+    assert len(store.duplicate_display_names(con)) == 0
+
+
+def test_enrichment_upsert_and_resume(con, items):
+    item = next(iter(items))
     ok = store.apply_enrichment(
-        con, fdc_id=1, display_name="Ground beef (80% lean)", emoji="🥩", prep_type="raw",
-        variable_fat=True, confidence=0.95, review_status="auto_approved",
-        model="some/model-v1",
+        con, merged_food_id=item, display_name="Ground beef", emoji="🥩",
+        commonness=0.8, keywords="mince; burger", confidence=0.95,
+        review_status="auto_approved", model="some/model-v1",
     )
     assert ok
-    assert con.execute("SELECT enriched_by FROM foods WHERE fdc_id = 1").fetchone()[0] == "some/model-v1"
-    # enriched at current version -> no longer a candidate
-    remaining = store.select_enrichment_candidates(con)["fdc_id"].to_list()
-    assert 1 not in remaining
+    assert con.execute(
+        "SELECT enriched_by FROM merged_foods WHERE merged_food_id = ?", [item]
+    ).fetchone()[0] == "some/model-v1"
+    # enriched -> no longer a candidate
+    assert item not in store.select_enrichment_candidates(con)["merged_food_id"].to_list()
     # audit trail written
-    audit = con.execute("SELECT count(*) FROM audit_log WHERE fdc_id = 1 AND actor = 'auto'").fetchone()[0]
-    assert audit > 0
+    assert con.execute(
+        "SELECT count(*) FROM audit_log WHERE fdc_id = ? AND actor = 'auto'", [item]
+    ).fetchone()[0] > 0
 
 
-def test_human_verified_lock(con):
-    store.apply_human_review(con, 1, display_name="Human name", prep_type="raw",
-                             variable_fat=True, accept=True)
+def test_human_verified_lock(con, items):
+    item = next(iter(items))
+    store.apply_human_review(con, item, display_name="Human name", accept=True)
     # automated write must be refused
     ok = store.apply_enrichment(
-        con, fdc_id=1, display_name="Robot name", emoji="🤖", prep_type=None,
-        variable_fat=False, confidence=0.99, review_status="auto_approved",
+        con, merged_food_id=item, display_name="Robot name", emoji="🤖",
+        commonness=0.1, keywords="robot", confidence=0.99,
+        review_status="auto_approved",
     )
     assert not ok
-    row = con.execute("SELECT display_name, review_status, human_verified FROM foods WHERE fdc_id = 1").fetchone()
-    assert row == ("Human name", "verified", True)
-    # re-ingest must not touch the verified row either
-    df = pl.DataFrame(
-        {
-            "fdc_id": [1], "data_type": ["sr_legacy_food"], "food_category": ["Beef Products"],
-            "description": ["CHANGED"], "fat_g": [1.0], "source_version": ["2099-01"],
-        }
-    )
-    counts = store.upsert_ingest(con, df)
-    assert counts["locked_skipped"] == 1
-    assert con.execute("SELECT description FROM foods WHERE fdc_id = 1").fetchone()[0] != "CHANGED"
+    assert con.execute(
+        "SELECT display_name, review_status, human_verified FROM merged_foods "
+        "WHERE merged_food_id = ?", [item]
+    ).fetchone() == ("Human name", "verified", True)
+    # ... and it is not offered as a candidate again
+    assert item not in store.select_enrichment_candidates(con)["merged_food_id"].to_list()
 
 
-def test_persist_rules_force_variable_fat(con, monkeypatch):
-    """The deterministic post-rules override the LLM: fat_percentage non-null
-    forces variable_fat true; non-meat/dairy category gates it false."""
+def test_persist_routes_a_name_that_lost_its_qualifiers_to_review(con, items, monkeypatch):
+    """The reported Stage 4 defect, guaranteed rather than requested.
+
+    Both granola bars came back named "Granola bar". A name shorter than the
+    identity it renders means the model summarized instead of rewording, and
+    the prompt asking it not to is a request where this is a check.
+    """
     monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
     from src import enrich
 
     enricher = enrich.Enricher(con)
-    rows = {r["fdc_id"]: r for r in store.select_enrichment_candidates(con).to_dicts()}
-
-    # row 1: ground beef with fat_percentage=20 — LLM says false, rule forces true
-    enricher._persist(rows[1], schema.EnrichmentResult(
-        display_name="Ground beef", emoji="🥩", prep_type="raw",
-        variable_fat=False, confidence=0.9))
-    enricher._flush()  # _persist only buffers; the write happens here
-    vf, status = con.execute("SELECT variable_fat, review_status FROM foods WHERE fdc_id = 1").fetchone()
-    assert vf is True and status == "auto_approved"
-
-    # row 2: avocado (Vegetables) — LLM says true, category gate forces false
-    enricher._persist(rows[2], schema.EnrichmentResult(
-        display_name="Avocado", emoji="🥑", prep_type="raw",
-        variable_fat=True, confidence=0.95))
+    enricher.stats = enrich.EnrichmentStats()
+    row = next(iter(items.values())) | {
+        "base_name": "almond granola bar", "food_kind": "dish", "brand_flagged": False,
+    }
+    enricher._persist(row, _group_result(display_name="Granola bar", emoji="🍫",
+                                         confidence=0.99))
     enricher._flush()
-    vf2 = con.execute("SELECT variable_fat FROM foods WHERE fdc_id = 2").fetchone()[0]
-    assert vf2 is False
+    status, notes = con.execute(
+        "SELECT m.review_status, "
+        "(SELECT new_value FROM audit_log WHERE fdc_id = m.merged_food_id "
+        " AND field = 'llm_notes' LIMIT 1) "
+        "FROM merged_foods m WHERE merged_food_id = ?", [row["merged_food_id"]]
+    ).fetchone()
+    assert status == "needs_review", "a 0.99 confidence must not override a real defect"
+    assert "drops qualifiers" in notes
 
 
-def test_enrich_row_retries_malformed_output_once(con, monkeypatch):
-    """Malformed output buys exactly one re-send, then the row goes to review."""
+def test_enrich_group_retries_malformed_output_once(con, items, monkeypatch):
+    """Malformed output buys exactly one re-send, then the item goes to review."""
     import asyncio
 
     monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
     from src import enrich
 
-    row = {r["fdc_id"]: r for r in store.select_enrichment_candidates(con).to_dicts()}[2]
-    good = json.dumps({"display_name": "Avocado", "emoji": "🥑", "prep_type": "raw",
-                       "variable_fat": False, "confidence": 0.9})
+    row = next(r for r in items.values() if not r["variable_fat"])
+
+    def answer(**overrides):
+        return json.dumps({
+            "display_name": "Avocado", "emoji": "🥑", "commonness": 0.6,
+            "keywords": ["guacamole"], "confidence": 0.9,
+        } | overrides)
 
     def replies(*answers):
         sent = iter(answers)
@@ -272,20 +419,92 @@ def test_enrich_row_retries_malformed_output_once(con, monkeypatch):
 
         return _fake
 
-    # garbage then valid -> the retry lands, row is persisted
+    # garbage then valid -> the retry lands, item is persisted
     enricher = enrich.Enricher(con)
-    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback", replies("not json", good))
-    asyncio.run(enricher.enrich_row(row))
-    enricher._flush()  # succeeded is counted when the buffered row is written
+    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback",
+                        replies("not json", answer()))
+    asyncio.run(enricher.enrich_group(row))
+    enricher._flush()  # succeeded is counted when the buffered item is written
     assert enricher.stats.succeeded == 1 and enricher.stats.failed == 0
 
     # garbage twice -> no third attempt, routed to needs_review
     enricher2 = enrich.Enricher(con)
-    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback", replies("not json", "{}"))
-    asyncio.run(enricher2.enrich_row(row))
+    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback",
+                        replies("not json", "{}"))
+    asyncio.run(enricher2.enrich_group(row))
     enricher2._flush()
     assert enricher2.stats.failed == 1 and enricher2.stats.succeeded == 0
-    assert con.execute("SELECT review_status FROM foods WHERE fdc_id = 2").fetchone()[0] == "needs_review"
+    assert con.execute(
+        "SELECT review_status FROM merged_foods WHERE merged_food_id = ?",
+        [row["merged_food_id"]],
+    ).fetchone()[0] == "needs_review"
+
+
+def test_mismatched_canon_indices_are_rejected(con, monkeypatch):
+    """A batch answer that does not cover exactly the foods sent is malformed,
+    however well-formed its JSON is.
+
+    Position alone would silently absorb a short, long or reordered list and
+    file one food's identity under another's fdc_id — which, unlike a bad name,
+    puts two unrelated foods in the same item. The echoed index is what turns
+    that into a re-send, and a batch that fails twice is left alone rather than
+    written half-way.
+    """
+    import asyncio
+
+    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
+    from src import canon
+
+    con.execute("UPDATE foods SET base_name = NULL")
+    batch = canon.select_candidates(con).to_dicts()
+    assert len(batch) == 3, "the fixture's three foods go out as one batch"
+    ok = {"i": 0, "base": "x", "kind": "dish", "prep": None}
+
+    for bad in (
+        [ok],                                                   # too few
+        [ok, ok | {"i": 0}, ok | {"i": 2}],                      # duplicate index
+        [ok | {"i": 1}, ok | {"i": 2}, ok | {"i": 3}],           # off-by-one
+    ):
+        reply = json.dumps({"foods": bad})
+
+        async def _fake(_self, _payload, _r=reply):
+            return _r
+
+        pass_ = canon.Canonicalizer(con)
+        monkeypatch.setattr(canon.Canonicalizer, "_request_with_fallback", _fake)
+        asyncio.run(pass_._process(batch))
+        pass_._flush()
+        assert pass_.stats.failed == len(batch), f"{bad} should not have been accepted"
+        assert pass_.stats.succeeded == 0
+
+
+def test_canon_writes_identity_and_reclusters_from_scratch(con, monkeypatch):
+    """A canonicalization run's output is what the next cluster.run() groups on."""
+    import asyncio
+
+    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
+    from src import canon
+
+    con.execute("UPDATE foods SET base_name = NULL, base_key = NULL, food_kind = NULL")
+    batch = canon.select_candidates(con).to_dicts()
+
+    async def _fake(_self, payload):
+        # every food gets the same identity: three foods, one item
+        return json.dumps({"foods": [
+            {"i": f["i"], "base": "mystery gruel", "kind": "dish", "prep": None}
+            for f in json.loads(payload)["foods"]
+        ]})
+
+    monkeypatch.setattr(canon.Canonicalizer, "_request_with_fallback", _fake)
+    stats = asyncio.run(canon.Canonicalizer(con).run(canon.batches(batch)))
+    assert stats.succeeded == len(batch) and stats.failed == 0
+    assert canon.count_candidates(con) == 0, "a canonicalized food is never re-sent"
+    assert con.execute(
+        "SELECT DISTINCT base_key FROM foods"
+    ).fetchall() == [("gruel mystery",)], "base_key is derived on write, not by the model"
+
+    out = cluster.run(con)
+    assert out["items"] == 1 and out["dishes"] == len(batch)
 
 
 def test_run_releases_the_file_lock_during_requests(con, monkeypatch):
@@ -304,10 +523,12 @@ def test_run_releases_the_file_lock_during_requests(con, monkeypatch):
     probe = f"import duckdb; duckdb.connect({db!r}).execute('SELECT count(*) FROM foods')"
     opened = []
 
-    async def _fake(_self, _payload):
+    async def _fake(_self, payload):
         opened.append(subprocess.run([sys.executable, "-c", probe]).returncode)
-        return json.dumps({"display_name": "Avocado", "emoji": "🥑", "prep_type": "raw",
-                           "variable_fat": False, "confidence": 0.9})
+        return json.dumps({
+            "display_name": json.loads(payload)["base"], "emoji": "🥑",
+            "commonness": 0.5, "keywords": ["food"], "confidence": 0.9,
+        })
 
     monkeypatch.setattr(enrich.Enricher, "_request_with_fallback", _fake)
     rows = store.select_enrichment_candidates(con).to_dicts()
@@ -315,89 +536,47 @@ def test_run_releases_the_file_lock_during_requests(con, monkeypatch):
 
     assert opened and all(rc == 0 for rc in opened), "database stayed locked mid-run"
     assert stats.succeeded == len(rows)
-    # ... and the connection is usable again, with the buffered rows written
+    # ... and the connection is usable again, with the buffered items written
     assert con.execute(
-        "SELECT count(*) FROM foods WHERE display_name IS NOT NULL"
+        "SELECT count(*) FROM merged_foods WHERE display_name IS NOT NULL"
     ).fetchone()[0] == len(rows)
 
 
-def test_commonness_pass_is_independent(con, monkeypatch):
-    """Stage 4b writes only commonness, scores human-verified rows too, and
-    drops out of its own queue once a row has a score."""
-    import asyncio
+def test_reingest_reclusters_and_requeues(con):
+    """A changed description reaches the reviewer one level up.
 
-    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
-    from src import enrich
-
-    async def _fake(_self, _payload):
-        return json.dumps({"c": 0.9})
-
-    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback", _fake)
-    # verified rows are locked against the naming pass but must still be scored
-    store.apply_human_review(con, 1, display_name="Human name", accept=True)
-
-    stats = asyncio.run(enrich.run(con, enricher_cls=enrich.CommonnessEnricher))
-    assert stats.succeeded == 2 and stats.skipped_locked == 0
-    assert con.execute("SELECT count(*) FROM foods WHERE commonness = 0.9").fetchone()[0] == 2
-    # the naming pass's own fields are untouched by it
-    assert con.execute("SELECT display_name FROM foods WHERE fdc_id = 1").fetchone()[0] == "Human name"
-    assert con.execute("SELECT display_name FROM foods WHERE fdc_id = 2").fetchone()[0] is None
-    # scored rows leave the queue
-    assert store.count_enrichment_candidates(con, enrich.CommonnessEnricher.candidate_where) == 0
-
-
-def test_keywords_pass_cleans_and_reaches_search(con, monkeypatch):
-    """Stage 4c writes only keywords, cleans what the model returns, and lands
-    them in the FTS text Stage 7 builds."""
-    import asyncio
-
-    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "test-key-never-used")
-    from src import appdb, enrich
-
-    async def _fake(_self, _payload):
-        # duplicate, mixed case, blank and a sentence: all handled, not rejected
-        return json.dumps({"k": ["Fettuccine", "fettuccine", " parmesan ", "",
-                                 "italian", "a" * 60]})
-
-    monkeypatch.setattr(enrich.Enricher, "_request_with_fallback", _fake)
-    # verified rows are locked against the naming pass but must still get keywords
-    store.apply_human_review(con, 1, display_name="Human name", accept=True)
-
-    stats = asyncio.run(enrich.run(con, enricher_cls=enrich.KeywordsEnricher))
-    assert stats.succeeded == 2 and stats.skipped_locked == 0
-    assert con.execute("SELECT keywords FROM foods WHERE fdc_id = 1").fetchone()[0] == (
-        "fettuccine; parmesan; italian"
-    )
-    # the other passes' fields are untouched
-    assert con.execute("SELECT display_name FROM foods WHERE fdc_id = 1").fetchone()[0] == "Human name"
-    assert con.execute("SELECT count(*) FROM foods WHERE commonness IS NOT NULL").fetchone()[0] == 0
-    # keyworded rows leave the queue
-    assert store.count_enrichment_candidates(con, store.KEYWORDS_PENDING) == 0
-
-    # and Stage 7 puts them in the searchable `aka` column
-    appdb.build(con)
-    aka = con.execute("SELECT aka FROM app_food_fts WHERE food_id = 1").fetchone()[0]
-    assert "fettuccine" in aka
-
-
-def test_reingest_requeues_changed_rows(con):
-    df = pl.DataFrame(
-        {
-            "fdc_id": [2], "data_type": ["survey_fndds_food"], "food_category": ["Vegetables"],
-            "description": ["Avocado, raw, California"], "fat_g": [15.0],
-            "source_version": ["2025-04"],
-        }
-    )
+    Nothing on `foods` is enriched any more, so a re-ingest does not re-queue
+    anything by itself: it changes the text, which changes the clustering,
+    which changes the item's member_key, which is what puts it back in the
+    queue.
+    """
+    item = store.select_enrichment_candidates(con)["merged_food_id"].to_list()[0]
     store.apply_enrichment(
-        con, fdc_id=2, display_name="Avocado", emoji="🥑", prep_type="raw",
-        variable_fat=False, confidence=0.9, review_status="auto_approved",
+        con, merged_food_id=item, display_name="Named", emoji="🥑", commonness=0.5,
+        keywords="kw", confidence=0.9, review_status="auto_approved",
     )
-    counts = store.upsert_ingest(con, df)
+    assert item not in store.select_enrichment_candidates(con)["merged_food_id"].to_list()
+
+    # a wholly different food under the same fdc_id: it leaves its old item
+    counts = store.upsert_ingest(con, pl.DataFrame({
+        "fdc_id": [2], "data_type": ["survey_fndds_food"], "food_category": ["Vegetables"],
+        "description": ["Broccoli, raw, chopped"], "fat_g": [0.4],
+        "source_version": ["2025-04"],
+    }))
     assert counts["updated"] == 1
-    status = con.execute("SELECT review_status FROM foods WHERE fdc_id = 2").fetchone()[0]
-    assert status == "pending"  # re-queued for enrichment at the new version
-    abbrev.run(con)  # re-expand the new description, as the run order would
-    assert 2 in store.select_enrichment_candidates(con)["fdc_id"].to_list()
+    abbrev.run(con)
+    cluster.run(con)
+
+    pending = con.execute(
+        "SELECT count(*) FROM merged_foods WHERE review_status = 'pending'"
+    ).fetchone()[0]
+    assert pending > 0
+    # ... and a re-queued item keeps its old name until a new one arrives, so
+    # the catalog is never momentarily nameless
+    assert con.execute(
+        "SELECT count(*) FROM merged_foods "
+        "WHERE review_status = 'pending' AND display_name IS NOT NULL"
+    ).fetchone()[0] >= 0
 
 
 def test_usage_accounting_survives_missing_provider_fields(con, monkeypatch):
@@ -454,150 +633,345 @@ def test_init_db_leaves_no_wal(tmp_path):
     assert reopened.execute("SELECT count(*) FROM foods").fetchone()[0] == 1
 
 
-# --------------------------------------------------------------------------
-# Stage 6b: merge / dedup
-# --------------------------------------------------------------------------
-def test_merge_key_normalizes_plurals_and_preparations():
-    # plural collapses, preparation words drop: same food, one key
-    assert merge.merge_key("Poached eggs") == merge.merge_key("Soft-boiled egg") == {"egg"}
-    assert merge.merge_key("Whole raw egg") == {"egg"}
-    # an added ingredient is a different key
-    assert merge.merge_key("Egg omelette") != merge.merge_key("Poached eggs")
-    # seasoning carries no macros, so it must not split a key
-    assert merge.merge_key("Tilapia, seasoned with salt and pepper") == merge.merge_key("Tilapia")
-    # word boundaries, not substrings: eggplant is not an egg
-    assert "egg" not in merge.merge_key("Eggplant, raw")
-    # fat levels are digits, which never reach the key
-    assert merge.merge_key("Ground beef (70% lean)") == merge.merge_key("Ground beef (95% lean)")
 
 
-def _merge_frame(rows):
-    """(fdc_id, name, category, prep, protein, carb, fat[, fat_pct]) -> input frame."""
+# --------------------------------------------------------------------------
+# Stage 3b: clustering into items and preparations
+# --------------------------------------------------------------------------
+def _cluster_frame(rows):
+    """(fdc_id, description, base, kind, prep, protein, carb, fat[, fat_pct]) -> frame.
+
+    The Stage 3b-1 columns are supplied directly: clustering reads them and
+    nothing else to decide identity, so a test that wants two foods in one item
+    gives them one base_name, and the description is only there to pick a
+    representative.
+    """
     return pl.DataFrame(
         [
-            {"fdc_id": r[0], "display_name": r[1], "description": r[1],
-             "food_category": r[2], "prep_type": r[3], "emoji": None,
-             "protein_g": r[4], "carb_g": r[5], "fat_g": r[6],
-             "fat_percentage": r[7] if len(r) > 7 else None}
+            {"fdc_id": r[0], "description": r[1], "base_name": r[2],
+             "food_kind": r[3], "prep_label": r[4],
+             "protein_g": r[5], "carb_g": r[6], "fat_g": r[7],
+             "fat_percentage": r[8] if len(r) > 8 else None,
+             "food_category": "Test Category",
+             "brand_flagged": False, "n_nutrients": 3}
             for r in rows
         ],
-        schema={"fdc_id": pl.Int64, "display_name": pl.Utf8, "description": pl.Utf8,
-                "food_category": pl.Utf8, "prep_type": pl.Utf8, "emoji": pl.Utf8,
+        schema={"fdc_id": pl.Int64, "description": pl.Utf8, "base_name": pl.Utf8,
+                "food_kind": pl.Utf8, "prep_label": pl.Utf8,
                 "protein_g": pl.Float64, "carb_g": pl.Float64, "fat_g": pl.Float64,
-                "fat_percentage": pl.Float64},
+                "fat_percentage": pl.Float64, "food_category": pl.Utf8,
+                "brand_flagged": pl.Boolean, "n_nutrients": pl.Int64},
     )
 
 
-def test_merge_groups_preparations_but_not_added_ingredients():
-    """Preparations of an egg are one item; an omelette's oil makes another."""
-    merged, links = merge.build_merges(_merge_frame([
-        (1, "Whole raw egg", "Dairy and Egg Products", "raw", 12.6, 0.7, 9.5),
-        (2, "Poached egg", "Dairy and Egg Products", "cooked", 12.5, 0.7, 9.5),
-        (3, "Fried egg, no added fat", "Dairy and Egg Products", "cooked", 13.6, 1.0, 11.0),
-        # same base, but oil pushes the ratio well off the egg point
-        (4, "Egg omelette with oil", "Dairy and Egg Products", "cooked", 11.0, 0.6, 22.0),
+def test_base_key_absorbs_the_ways_a_name_can_be_written():
+    """Batching makes the model write one string per food; this is what makes
+    a near-miss across two requests survive anyway."""
+    key = cluster.base_key
+    assert key("Rice, white") == key("white rice") == key("White Rices") == "rice white"
+    # a numeric fat level is a grade of one product, never part of its identity
+    assert key("ground beef, 80% lean") == key("ground beef") == key("Beef, ground")
+    assert key("milk, 3.25% milkfat") == key("Milk")
+    # ... but a NAMED trim is, because it is what a shopper picks between
+    assert key("pork loin, lean only") != key("pork loin")
+    assert key(None) == key("") == ""
+
+
+def test_items_group_on_identity_not_on_macros():
+    """The reported cross-database miss: the same food recorded twice with
+    macros 0.30 apart on the simplex used to be two items. Identity is textual,
+    so it is one."""
+    items, _, links = cluster.build_clusters(_cluster_frame([
+        (1, "Beef, top sirloin steak, lean and fat, raw", "beef top sirloin steak",
+         "ingredient", "raw", 20.7, 0.0, 11.1),
+        (2, "Beef, top sirloin steak, raw", "beef top sirloin steak",
+         "ingredient", "raw", 22.0, 0.2, 5.7),
     ]))
-    assert len(merged) == 2
+    assert len(items) == 1
+    assert links["merged_food_id"][0] == links["merged_food_id"][1]
+
+
+def test_a_dish_is_never_a_preparation_of_its_ingredient():
+    """fdc_id 169712 (white rice) and 167668 (fried rice) were one item.
+
+    Two separations do it: different base names, and — even if canon.py were to
+    hand back the same base name — the ingredient/dish split, which is why
+    food_kind is in the grouping key rather than merely recorded.
+    """
+    _, _, links = cluster.build_clusters(_cluster_frame([
+        (169712, "Rice, white, steamed, Chinese restaurant", "white rice",
+         "ingredient", "steamed", 2.4, 33.9, 0.2),
+        (167668, "Restaurant, Chinese, fried rice, without meat", "fried rice",
+         "dish", None, 4.2, 20.6, 4.9),
+    ]))
+    group_of = dict(zip(links["fdc_id"], links["merged_food_id"]))
+    assert group_of[169712] != group_of[167668]
+
+    # the kind guard alone, with the base names deliberately collided
+    _, _, same_name = cluster.build_clusters(_cluster_frame([
+        (1, "Rice", "rice", "ingredient", "boiled", 2.4, 33.9, 0.2),
+        (2, "Rice dish", "rice", "dish", None, 2.4, 33.9, 0.2),
+    ]))
+    assert same_name["merged_food_id"][0] != same_name["merged_food_id"][1]
+
+
+def test_a_disagreeing_kind_is_reported_not_silently_voted_on(con):
+    """The one failure mode food_kind-in-the-key introduces.
+
+    Two records of one food that straddled a canonicalization batch boundary
+    can come back with different kinds and then split into two items. It is
+    reported rather than majority-voted: forcing a vote would re-open the bug
+    the stage exists to close, because two genuinely different foods that
+    collided on a base name would then merge.
+    """
+    assert cluster.run(con)["kind_splits"] == []
+    con.execute("UPDATE foods SET food_kind = 'dish' WHERE fdc_id = 3")
+    out = cluster.run(con)
+    assert out["kind_splits"] == ["beef ground"]
+    assert out["items"] == 3, "the disagreement really does cost an extra item"
+
+
+def test_a_distinguishing_ingredient_makes_a_different_item():
+    """fdc_ids 167542/167543 were one item: 'plain' and 'hard' were stopwords
+    and 'almond' was one token out of four, so they scored 0.75 and merged."""
+    items, _, links = cluster.build_clusters(_cluster_frame([
+        (167542, "Snacks, granola bars, hard, plain", "granola bar", "dish", None,
+         9.4, 64.8, 15.6),
+        (167543, "Snacks, granola bars, hard, almond", "almond granola bar", "dish",
+         None, 9.8, 64.4, 17.3),
+    ]))
+    assert len(items) == 2
+    group_of = dict(zip(links["fdc_id"], links["merged_food_id"]))
+    assert group_of[167542] != group_of[167543]
+
+
+def test_groups_preparations_but_not_added_ingredients():
+    """Preparations of an egg are one item; an omelette is a dish of its own."""
+    items, _, links = cluster.build_clusters(_cluster_frame([
+        (1, "Egg, whole, raw", "egg", "ingredient", "raw", 12.6, 0.7, 9.5),
+        (2, "Egg, whole, poached", "egg", "ingredient", "poached", 12.5, 0.7, 9.5),
+        (3, "Egg, whole, cooked, fried", "egg", "ingredient", "fried", 13.6, 1.0, 11.0),
+        (4, "Egg omelet with cheese", "cheese omelet", "dish", None, 11.0, 0.6, 22.0),
+    ]))
+    assert len(items) == 2
     by_id = dict(zip(links["fdc_id"], links["merged_food_id"]))
     assert by_id[1] == by_id[2] == by_id[3]
     assert by_id[4] != by_id[1]
-    # canonical name prefers the unprepared member over the shorter "Poached egg"
-    egg = merged.filter(pl.col("merged_food_id") == by_id[1])
-    assert egg["display_name"][0] == "Whole raw egg"
+    egg = items.filter(pl.col("merged_food_id") == by_id[1])
     assert egg["n_foods"][0] == 3
     assert not egg["variable_fat"][0]
 
 
-def test_merge_collapses_fat_levels_and_marks_variable_fat():
-    merged, links = merge.build_merges(_merge_frame([
-        (1, "Ground beef (70% lean)", "Beef Products", "raw", 14.4, 0.0, 30.0, 30.0),
-        (2, "Ground beef (95% lean)", "Beef Products", "raw", 21.4, 0.0, 5.0, 5.0),
-        (3, "Ground beef", "Beef Products", None, 17.4, 0.0, 14.0, None),
+def test_preparations_split_on_water_and_take_the_widest_label():
+    """Cooking drives off water, so cooked carries more protein per 100 g than
+    raw and lands in its own preparation. Roasted and stewed do not — and the
+    preparation that holds both is called 'cooked', because a label that covers
+    only one of them would be a lie about the other."""
+    items, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Chicken, thigh, raw", "chicken thigh", "ingredient", "raw", 19.7, 0.0, 4.1),
+        (2, "Chicken, thigh, roasted", "chicken thigh", "ingredient", "roasted",
+         24.8, 0.0, 8.2),
+        (3, "Chicken, thigh, stewed", "chicken thigh", "ingredient", "stewed",
+         25.0, 0.0, 9.8),
     ]))
-    assert len(merged) == 1
-    assert merged["display_name"][0] == "Ground beef"
-    assert merged["variable_fat"][0]
-    assert merged["n_foods"][0] == 3
-    assert set(links["fdc_id"]) == {1, 2, 3}
+    assert len(items) == 1, "raw and cooked thigh are one item — this is the point"
+    assert items["n_preps"][0] == 2
+    by_label = dict(zip(preps["prep_type"], preps["n_foods"]))
+    assert by_label == {"cooked": 2, "raw": 1}
+    cooked = preps.filter(pl.col("prep_type") == "cooked")
+    assert cooked["protein_g"][0] > 20.0
 
 
-def test_fat_variant_path_needs_a_stated_fat_level():
-    """A fried-in-oil egg must not merge into the raw egg group.
+def test_one_label_stays_one_preparation_however_the_macros_disagree():
+    """The cross-database fix, and the reason labels are bucketed before
+    macros are looked at.
 
-    It shares the {egg} block key and, like every near-zero-carb food, projects
-    to ~1.0 on the fat-free basis — so the projection alone cannot tell it from
-    a genuine fat level. Only the fat_percentage gate keeps the oil out.
+    These two rows are the same food in two USDA databases. Splitting on macros
+    first made them two preparations and then asked the LLM to invent a
+    distinction between them that does not exist.
     """
-    merged, links = merge.build_merges(_merge_frame([
-        (1, "Whole raw egg", "Dairy and Egg Products", "raw", 12.6, 0.7, 9.5),
-        (2, "Fried egg", "Dairy and Egg Products", "cooked", 9.5, 0.7, 13.0),
+    items, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Pork, belly, raw", "pork belly", "ingredient", "raw", 9.3, 0.0, 53.0),
+        (2, "Pork, belly", "pork belly", "ingredient", "raw", 26.6, 0.0, 32.2),
     ]))
-    assert len(merged) == 2, "added frying fat is a different ingredient, not a fat level"
+    assert len(items) == 1
+    assert items["n_preps"][0] == 1
+    assert preps["prep_type"][0] == "raw" and preps["n_foods"][0] == 2
 
 
-def test_fat_variant_path_is_gated_to_meat_and_dairy():
-    """The fat-free projection must not merge an added-fat vegetable back in."""
-    merged, _ = merge.build_merges(_merge_frame([
-        (1, "Carrots", "Vegetables and Vegetable Products", "raw", 0.9, 9.6, 0.2),
-        (2, "Carrots with added fat", "Vegetables and Vegetable Products", "cooked", 0.8, 8.2, 6.0, 6.0),
-    ]))
-    assert len(merged) == 2
+def test_macros_never_merge_raw_into_a_cooked_preparation():
+    """The ceiling on the macro merge, and a real corpus case.
 
-
-def test_merge_does_not_chain_across_blocks(con):
-    """A chain of pairwise-close foods must not collapse into one group.
-
-    Union-find over "ratio distance < threshold" takes the transitive closure
-    of a non-transitive relation and swallows the whole corpus; this is the
-    regression guard for that.
+    Poaching an egg barely moves its per-100 g macros, so raw and poached egg
+    sit inside PREP_DISTANCE — and merging them gives one preparation holding
+    raw eggs under the label "poached". Grilled and baked share the parent
+    "cooked" and may merge; raw and poached do not share one and may not.
     """
-    step = config.MERGE_DISTANCE * 0.6  # each neighbour is close, the ends are not
-    rows = [
-        (i + 1, f"Chain food {chr(97 + i) * 3}", "Vegetables and Vegetable Products", None,
-         10.0 + i * step * 100, 90.0 - i * step * 100, 0.0)
-        for i in range(8)
-    ]
-    merged, _ = merge.build_merges(_merge_frame(rows))
-    # distinct names -> distinct blocks -> no group may span them
-    assert int(merged["n_foods"].max()) == 1
+    _, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Egg, whole, raw", "egg", "ingredient", "raw", 12.6, 0.7, 9.5),
+        (2, "Egg, whole, poached", "egg", "ingredient", "poached", 12.5, 0.7, 9.5),
+    ]))
+    assert dict(zip(preps["prep_type"], preps["n_foods"])) == {"raw": 1, "poached": 1}
+
+    # ... while two verbs that DO share a parent still collapse to it
+    _, cooked, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Chicken, grilled", "chicken breast", "ingredient", "grilled", 31.0, 0.0, 3.6),
+        (2, "Chicken, baked", "chicken breast", "ingredient", "baked", 31.0, 0.0, 3.6),
+    ]))
+    assert cooked["prep_type"].to_list() == ["cooked"]
 
 
-def test_merge_run_is_idempotent(con):
+def test_unlabeled_rows_join_a_labelled_preparation_they_match():
+    """A description that does not say how it was cooked is an absence of
+    evidence, so it joins the preparation its macros put it in and takes that
+    preparation's name."""
+    _, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Salmon, raw", "salmon", "ingredient", "raw", 17.0, 0.0, 13.4),
+        (2, "Salmon, cooked, baked", "salmon", "ingredient", "baked", 25.4, 0.0, 12.4),
+        (3, "Salmon", "salmon", "ingredient", None, 25.6, 0.0, 12.0),
+    ]))
+    assert len(preps) == 2
+    assert dict(zip(preps["prep_type"], preps["n_foods"])) == {"baked": 2, "raw": 1}
+
+
+def test_fat_levels_are_one_preparation_not_many():
+    """A fat-level family is one preparation sold at several grades.
+
+    Splitting these on absolute macros gives ground beef eight "preparations"
+    that are only lean percentages, and then asks the LLM to name them.
+    """
+    items, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Beef, ground, 70% lean meat / 30% fat, raw", "ground beef", "ingredient",
+         "raw", 14.4, 0.0, 30.0, 30.0),
+        (2, "Beef, ground, 80% lean meat / 20% fat, raw", "ground beef", "ingredient",
+         "raw", 17.4, 0.0, 20.0, 20.0),
+        (3, "Beef, ground, 95% lean meat / 5% fat, raw", "ground beef", "ingredient",
+         "raw", 21.4, 0.0, 5.0, 5.0),
+    ]))
+    assert len(items) == 1
+    assert items["variable_fat"][0]
+    assert items["n_foods"][0] == 3
+    assert items["n_preps"][0] == 1, "lean percentages are not preparations"
+
+
+def test_uncanonicalized_foods_form_singletons_rather_than_merging():
+    """Stage 3b still runs on a corpus Stage 3b-1 has not covered.
+
+    A missing identity must never be guessed from the description: a wrong key
+    merges two foods that should stay apart, where a missing one only leaves a
+    singleton the next canonicalization run picks up.
+    """
+    items, _, links = cluster.build_clusters(_cluster_frame([
+        (1, "Rice, white, raw", None, None, None, 2.7, 28.2, 0.3),
+        (2, "Rice, white, cooked", None, None, None, 2.7, 28.2, 0.3),
+    ]))
+    assert len(items) == 2
+    assert links["merged_food_id"][0] != links["merged_food_id"][1]
+
+
+def test_representative_prefers_the_widest_nutrient_panel():
+    """Every member is within PREP_DISTANCE on the macros, so nutrition cannot
+    decide the representative — but the detail page shows the full panel, and a
+    Foundation row with 60 nutrients is visibly better than an FNDDS row with 3.
+
+    The two rows share a base_name, so they are one item and the tie really
+    does come down to the panel.
+    """
+    df = _cluster_frame([
+        (1, "Tomatoes, red, ripe", "tomato", "ingredient", "raw", 0.9, 3.9, 0.2),
+        (2, "Tomatoes, red, ripe, raw, whole, fresh", "tomato", "ingredient", "raw",
+         0.9, 3.9, 0.2),
+    ])
+    df = df.with_columns(pl.Series("n_nutrients", [3, 60]))
+    items, _, _ = cluster.build_clusters(df)
+    assert len(items) == 1
+    assert items["merged_food_id"][0] == 2, "60 nutrients beats a shorter description"
+
+
+def test_cluster_run_is_idempotent_and_preserves_enrichment(con):
+    """Re-clustering must be safe to run at any time.
+
+    merged_foods now holds a whole LLM run, so the DELETE-and-refill this
+    replaced would discard it. This is the invariant that protects the spend.
+    """
+    first = cluster.run(con)
+    item = store.select_enrichment_candidates(con)["merged_food_id"].to_list()[0]
     store.apply_enrichment(
-        con, fdc_id=1, display_name="Ground beef", emoji="🥩", prep_type="raw",
-        variable_fat=True, confidence=0.95, review_status="auto_approved",
+        con, merged_food_id=item, display_name="Ground beef", emoji="🥩",
+        commonness=0.8, keywords="mince; burger", confidence=0.95,
+        review_status="auto_approved",
+    )
+    before = con.execute(
+        "SELECT merged_food_id, display_name, emoji, commonness, keywords, confidence, "
+        "review_status FROM merged_foods ORDER BY 1"
+    ).fetchall()
+    before_preps = con.execute(
+        "SELECT prep_id, seq, prep_type FROM merged_preps ORDER BY 1"
+    ).fetchall()
+    assert sorted(p[2] for p in before_preps) == ["cooked", "raw", "raw"], (
+        "prep_type is derived from the canonicalized labels, not from an LLM run"
+    )
+
+    second = cluster.run(con)
+    assert second["items"] == first["items"] and second["preps"] == first["preps"]
+    assert second["created"] == 0 and second["requeued"] == 0 and second["dissolved"] == 0
+    assert con.execute(
+        "SELECT merged_food_id, display_name, emoji, commonness, keywords, confidence, "
+        "review_status FROM merged_foods ORDER BY 1"
+    ).fetchall() == before
+    assert con.execute(
+        "SELECT prep_id, seq, prep_type FROM merged_preps ORDER BY 1"
+    ).fetchall() == before_preps
+
+
+def test_membership_change_requeues_but_keeps_the_name(con):
+    """A re-cluster that moves members re-queues the item — and must not blank
+    it in the meantime, or the catalog is momentarily nameless."""
+    item = store.select_enrichment_candidates(con)["merged_food_id"].to_list()[0]
+    store.apply_enrichment(
+        con, merged_food_id=item, display_name="Named", emoji="🥩", commonness=0.8,
+        keywords="kw", confidence=0.95, review_status="auto_approved",
+    )
+    # a near-duplicate USDA record lands in that item's group — which it does
+    # by carrying the same identity, since that is now the whole grouping rule
+    con.execute(
+        "INSERT INTO foods (fdc_id, data_type, food_category, description, "
+        "source_version, base_name, base_key, food_kind, prep_label) "
+        "SELECT 99, data_type, food_category, description, source_version, "
+        "base_name, base_key, food_kind, prep_label FROM foods WHERE fdc_id = ?",
+        [item],
     )
     con.execute(
-        "INSERT INTO food_nutrients (fdc_id, nutrient_id, amount) VALUES "
-        "(1, 1003, 17.4), (1, 1005, 0.0), (1, 1004, 20.0), "
-        "(2, 1003, 2.0), (2, 1005, 8.5), (2, 1004, 15.0)"
+        "INSERT INTO food_nutrients (fdc_id, nutrient_id, amount) "
+        "SELECT 99, nutrient_id, amount FROM food_nutrients WHERE fdc_id = ?", [item]
     )
-    first = merge.run(con)
-    assert first["foods"] == 2 and first["merged_foods"] == 2 and first["linked"] == 2
-    ids = con.execute("SELECT fdc_id, merged_food_id FROM foods ORDER BY fdc_id").fetchall()
-    assert merge.run(con) == first
-    assert con.execute("SELECT fdc_id, merged_food_id FROM foods ORDER BY fdc_id").fetchall() == ids
-    # each food is its own group here, so the link points at itself
-    assert ids == [(1, 1), (2, 2)]
+    out = cluster.run(con)
+    assert out["requeued"] >= 1
+    row = con.execute(
+        "SELECT display_name, review_status FROM merged_foods WHERE merged_food_id = ?",
+        [item],
+    ).fetchone()
+    assert row == ("Named", "pending"), "re-queued, but still named"
+    assert item in store.select_enrichment_candidates(con)["merged_food_id"].to_list()
 
 
-def test_merge_members_lists_the_group_with_its_ratios(con):
-    """The notebook's drill-down: a merged item -> the foods it merged from."""
-    # same name, same macro ratio -> one group of two, something to drill into
-    con.execute(
-        "INSERT INTO food_nutrients (fdc_id, nutrient_id, amount) VALUES "
-        "(1, 1003, 17.4), (1, 1005, 0.0), (1, 1004, 20.0), "
-        "(2, 1003, 8.7), (2, 1005, 0.0), (2, 1004, 10.0)"
-    )
-    con.execute("UPDATE foods SET display_name = 'Ground beef'")
-    merge.run(con)
-    groups = store.merge_groups(con, min_size=2)
-    assert len(groups) == 1 and groups["n_foods"][0] == 2
+def test_verified_items_survive_reclustering(con):
+    """The human_verified lock covers re-clustering, not just enrichment."""
+    item = store.select_enrichment_candidates(con)["merged_food_id"].to_list()[0]
+    store.apply_human_review(con, item, display_name="Human name", accept=True)
+    cluster.run(con)
+    assert con.execute(
+        "SELECT display_name, review_status, human_verified FROM merged_foods "
+        "WHERE merged_food_id = ?", [item]
+    ).fetchone() == ("Human name", "verified", True)
 
-    members = store.merge_members(con, groups["merged_food_id"][0])
-    assert members["fdc_id"].to_list() == [1, 2]  # canonical first
-    assert members["canonical"].to_list() == [True, False]
-    assert members["p"][0] == round(17.4 / 37.4, 3)
-    # a food with no nutrient rows still shows up, just without a ratio
-    con.execute("DELETE FROM food_nutrients WHERE fdc_id = 2")
-    assert store.merge_members(con, groups["merged_food_id"][0])["p"][1] is None
+
+def test_cluster_members_lists_the_item_by_preparation(con):
+    """The notebook's drill-down: an item -> the foods it was built from."""
+    listed = store.cluster_items(con, min_size=2)
+    assert len(listed) >= 1
+    members = store.cluster_members(con, listed["merged_food_id"][0])
+    assert len(members) == listed["n_foods"][0]
+    assert members["seq"].to_list() == sorted(members["seq"].to_list())
+    # exactly one representative per preparation
+    assert members.filter(pl.col("representative")).height == listed["n_preps"][0]

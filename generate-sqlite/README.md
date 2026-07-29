@@ -63,28 +63,45 @@ API calls):
    and destroyed the brand signal on ~1,000 rows outside `BRAND_TOKENS`.
 3. **Brand detection** — SR Legacy rows with brand names in the description
    get `brand_flagged` (brand list + ALL-CAPS heuristic, pure rules).
-4. **Sample enrichment (~200 rows)** — run this first; it reports measured
+   3b-1. **Canonicalize** — one cheap batched LLM pass that reads every food's
+   description and writes down what it **is**: `base_name`, `food_kind`
+   (`ingredient` / `dish`) and `prep_label`. See
+   [Canonicalization](#canonicalization-srccanonpy). ~40 foods per request,
+   resumable on `base_name IS NULL`.
+   3b. **Cluster** — group the rows that are one food into `merged_foods`
+   (**items** — one row in the search list) and `merged_preps`
+   (**preparations** — the variant selector), by exact `base_key` +
+   `food_kind`. See [Clustering](#clustering-srcclusterpy). Deterministic,
+   no LLM, ~2 s, and non-destructive: re-running keeps every name Stage 4
+   produced.
+4. **Sample enrichment (~200 items)** — run this first; it reports measured
    token cost/latency and projects the full-run cost.
-5. **Full enrichment** — async OpenRouter calls, one food item per request,
+5. **Full enrichment** — async OpenRouter calls, one **item** per request,
    paced to `REQUESTS_PER_MINUTE` with `CONCURRENCY` requests in flight and
-   tenacity backoff on 429/5xx (honouring `Retry-After`). Malformed output is
-   retried once, then routed to `needs_review`. Every row is persisted
-   immediately, so the run is safe to interrupt and re-run: completed rows are
-   skipped.
+   tenacity backoff on 429/5xx (honouring `Retry-After`). Each request asks
+   only how to present the item (`display_name`, `emoji`, `keywords`,
+   `commonness`) — the identity and the preparation labels arrived from Stage
+   3b-1. Malformed output is retried once, then routed to `needs_review`.
+   Every item is persisted immediately, so the run is safe to interrupt and
+   re-run: completed items are skipped.
 6. **Review** — the `needs_review` queue in a marimo table; edit
-   `display_name` / `emoji` / `prep_type` / `variable_fat`, then Accept (sets
+   `display_name` / `emoji` / `keywords`, then Accept (sets
    `review_status=verified`, `human_verified=true`) or Reject.
-   6b. **Merge** — group the rows that are one food in several preparations
-   or fat levels (four eggs, nine ground beefs) into `merged_foods`, keyed on
-   the protein:carb:fat ratio, which is invariant to water and seasoning but
-   not to a macro-bearing addition. 13,694 foods → 10,000 items; 2,192 groups
-   hold more than one; largest is `Ground beef` at 29. Clustering is
-   complete-linkage *inside a blocking key* — the obvious union-find over
-   every close pair takes the transitive closure of a relation that is not
-   transitive, and every threshold tried collapsed 8.5k–12.5k foods into one
-   blob. Reasoning in `src/merge.py`.
 7. **Export** — build the app-shaped `app_*` tables and write
    `../database/foods.sqlite`. See [The app catalog](#the-app-catalog-srcappdbpy).
+
+Enrichment used to be three passes of one **food** each — naming, then
+commonness, then keywords — which was ~41k requests to describe 13.7k rows
+that are mostly near-duplicates. Clustering first and asking once is ~8.3k
+requests.
+
+The LLM now runs *twice*, which sounds like a step backwards and is not: the
+two passes ask different questions of different subjects. Stage 3b-1 asks what
+a **food** is, batched 40 to a request, and the answer is a key. Stage 4 asks
+how an **item** should look, one per request, and the answer is prose. Trying
+to do the first with thresholds is what produced the failures in
+[Clustering](#clustering-srcclusterpy); trying to do it inside Stage 4 is
+impossible, because Stage 4 cannot run until the grouping it depends on exists.
 
 ### Invariants
 
@@ -96,26 +113,158 @@ API calls):
   `cleanup_log` + `audit_log` and the raw USDA text is always recoverable by
   re-running ingest against `data/raw/`.
 - **Routing**: `confidence` covers the whole enrichment — `display_name`,
-  `emoji`, `prep_type` and `variable_fat` — and is the model's *least* certain
-  field, not an average, because the row publishes or not as a unit.
-  `confidence >= 0.80` → `auto_approved`; below, plus all brand-flagged and
-  validation-failed rows → `needs_review`. Thresholds in `src/config.py`.
-- `fat_percentage` and `data_type` are deterministic (regex / verbatim) —
-  never LLM outputs.
+  `emoji` and `keywords` — and is the model's *least* certain field, not an
+  average, because the item publishes or not as a unit. `confidence >= 0.80` →
+  `auto_approved`; below, plus all brand-flagged and validation-failed items →
+  `needs_review`. Thresholds in `src/config.py`.
+- **The naming cannot lose what the identity carries.** `store.cross_check`
+  rejects a `display_name` that adds a preparation word the `base_name` does
+  not have, or that has *fewer* content words than the base — the two ways
+  Stage 4 was observed to fail (`"Roasted chicken thigh"`, and both granola
+  bars named `"Granola bar"`). Both are only checkable because `base_name` is
+  the grouping key, so two items necessarily have different ones;
+  `store.duplicate_display_names()` is the post-run audit that should be empty.
+- `fat_percentage`, `data_type` and `variable_fat` are deterministic (regex /
+  verbatim / measured over the group) — never LLM outputs. The preparation
+  split changes basis on `variable_fat`, so it has to be known before it runs.
+
+## Canonicalization (`src/canon.py`)
+
+Stage 3b-1 reads each USDA row and answers three questions about it:
+
+* **`base_name`** — the food's identity, with every cooking, doneness, grade,
+  trim, numeric fat-level, brand and filler word removed. `"Rice, white,
+  steamed, Chinese restaurant"` → `white rice`. It *keeps* anything a shopper
+  picks between: ingredients (`almond granola bar`), form (`ground beef`,
+  `beef broth`), cut (`chicken thigh`), and named macro-bearing qualifiers
+  (`pork loin, lean only`, `chicken thigh, with skin`).
+* **`food_kind`** — `ingredient` or `dish`. A dish is composed of several
+  foods and is **never** a preparation of one of them: fried rice is not a
+  preparation of rice, an omelet is not a preparation of egg.
+* **`prep_label`** — how *this* record was prepared, read off the text, or
+  null when the description does not say.
+
+Foods go out ~40 per request, ordered by the first word of the description and
+then by the description itself. **The batch is the consistency mechanism, not a
+cost trick.** The one way this pass fails is by writing `chicken thigh` in one
+request and `thigh, chicken` in the next, which splits an item in two; ordering
+puts a food's several USDA records in the same batch, so the model writes one
+string for all of them. `cluster.base_key()` normalizes what is left — case,
+plural, punctuation, word order.
+
+Signals sent: the description, the USDA category (the FNDDS WWEIA categories
+name `"…mixed dishes"` outright), USDA's own `Common Name` and `Additional
+Description` attributes, and — for the 5,431 FNDDS rows that have one —
+`input_foods`, the recipe's actual ingredient list, which is the strongest
+available evidence for `kind`. Macros are deliberately **not** sent; see below
+for why.
+
+Resumable on `base_name IS NULL`. A batch that fails validation twice is left
+un-canonicalized rather than written half-way: a wrong base name merges two
+foods that should stay apart, where a missing one only leaves a singleton item
+the next run picks up.
+
+## Clustering (`src/cluster.py`)
+
+Stage 3b builds the two-level structure the app shows: an **item** (one row in
+the search list) holding one or more **preparations** (the variant selector).
+
+**An item is every food sharing a `base_key` and a `food_kind`.** Identity is a
+key, not a pairwise test, and that is the design: a key is transitive for free.
+`food_kind` is in the key rather than merely recorded, so the ingredient/dish
+separation holds even if canonicalization hands back the same base name twice.
+
+Within an item, preparations start from the Stage 3b-1 labels and are then
+**merged** where the macros agree, taking the widest label that covers them
+(`config.PREP_PARENT`): grilled, boiled and baked land on one profile and
+become one preparation called "cooked". Labels first, macros second — that
+order is load-bearing, see below.
+
+### What this replaced, and why, with the numbers
+
+Identity used to be decided by two thresholds: Jaccard ≥ `CLUSTER_JACCARD`
+(0.70) over stopword-filtered description tokens, **and** Euclidean distance ≤
+`MERGE_DISTANCE` (0.20) on the protein/carb/fat simplex. Measured on the full
+13,694-food corpus, they could not be tuned into agreement, and the reason is
+structural rather than a matter of tuning:
+
+**Word overlap cannot tell an ingredient word from a handling word, and the
+stopword list was the thing making the call.** `"Snacks, granola bars, hard,
+plain"` and `"Snacks, granola bars, hard, almond"` scored 0.75 — `hard` and
+`plain` were stopwords, `almond` was one token out of four — and merged into
+one item. Adding `plain` to a word list is not a fix; the next case is a word
+nobody thought of. `"Rice, white, steamed, Chinese restaurant"` and
+`"Restaurant, Chinese, fried rice, without meat"` also scored 0.75, because
+`fried`, `without` and `meat` were all stopwords too.
+
+**Macros are not an identity signal at all.** The same food recorded in two
+USDA databases differs by more than two different foods differ within one:
+`sr_legacy` *"Beef, top sirloin steak, lean and fat, raw"* (20.7/0/11.1) and
+`foundation` *"Beef, top sirloin steak, raw"* (22.0/0.2/5.7) sit 0.200 apart
+and were two items. **6,586** token-similar pairs were rejected by the ratio
+test, 698 of them cross-database duplicates; **3,937** pairs at Jaccard ≥ 0.85
+landed in different items, and 5,480 of 8,335 items were singletons.
+
+Gone with them: greedy complete-linkage over an inverted token index (it
+existed to bound group diameter in a non-transitive relation — union-find over
+the same pairs collapsed 8.5k–12.5k of 13.6k foods into one blob), the
+fat-free projection and its two guards, and the 60-word `MERGE_STOPWORDS`.
+`config.BASE_KEY_STOPWORDS` replaces the last of those with seven function
+words, and the contrast is the point: nothing in it can distinguish two foods,
+so nothing in it can make the granola-bar mistake.
+
+### Preparations: labels first, macros second
+
+Splitting on macros alone — as this did — meant the same food recorded twice
+with different numbers became two preparations, and the LLM was then asked to
+invent a distinction between them that does not exist. That is what the
+`suspicious` flag existed to report. Bucketing by the text label first puts
+them together, and the macro pass only ever *merges* buckets from there, so a
+bucket survives as its own preparation only when both its text and its numbers
+say it is different. `suspicious` is gone with the problem it described.
+
+**The merge may only join labels that share a `PREP_PARENT`.** Poaching an egg
+barely moves its per-100 g macros, so raw and poached egg sit inside
+`PREP_DISTANCE` of each other — measured on the real corpus, they merged into
+one preparation holding raw eggs under the label "poached", which is worse than
+the row it saved. Grilled and baked chicken land on the same numbers too, but
+they share the parent "cooked", so merging them yields a label that is true of
+both. A null label is compatible with anything, because a description that does
+not say how a food was prepared leaves the macros as the only evidence.
+
+Complete-linkage on that merge, so a merged bucket stays macro-coherent rather
+than chaining.
+
+### The fat-level exception
+
+Foods sold at a stated numeric fat level (`80% lean`, `2% milkfat`) are one
+product sold at several grades. `base_key` strips the `\d+% lean|fat|milkfat`
+fragment, so every grade of ground beef keys alike on the way in — no
+projection, no category gate, no fat-share guard. The prompt is told to omit
+these too; the regex is the guarantee.
+
+Such an item is marked `variable_fat` (measured from Stage 2's
+`fat_percentage`, never an LLM output), and its preparations then split on a
+**fat-free basis** — protein and carb per 100 g of lean mass — instead of on
+absolute macros. Leanness moves fat and protein together, so raw ground beef
+ranges over 27.5 g→3.0 g of fat and 15.1 g→22.0 g of protein; comparing those
+directly splits one preparation into **eight** that are only lean percentages.
+Measured, the fat-free basis takes the cooked-patty group from 6 preparations
+to 1 and raw ground beef from 8 to 2, leaving chicken thigh and egg untouched.
 
 ## The app catalog (`src/appdb.py`)
 
 The pipeline tables are shaped for enrichment and review; a macro-logging app
 needs the opposite. Stage 7 materializes `app_*` tables from them and exports
-**`../database/foods.sqlite`** (~22 MB, from a 61 MB DuckDB) — a read-only catalog the
+**`../database/foods.sqlite`** (~20 MB, from a 64 MB DuckDB) — a read-only catalog the
 app bundles, with its search indexes already built. Derived and idempotent:
 re-run it after any enrichment or review pass. It never writes to the pipeline
 tables, so the human-verified lock is not a concern.
 
 | table | shape | what it serves |
 | --- | --- | --- |
-| `foods` | 13.7k narrow rows, 4 macros denormalized on, `variable_fat`, `merged_food_id` | search list — one read, no join |
-| `merged_foods` | 10k Stage 6b groups, `n_foods` + `variable_fat` | one search result per food a user recognizes; the variant picker behind it |
+| `foods` | 13.7k narrow rows, 4 macros denormalized on, `merged_food_id` + `prep_id` | the loggable rows; the variant picker reads `food_id = prep_id` |
+| `merged_foods` | 8.3k Stage 3b items, name/emoji/keywords/commonness, `n_foods` + `n_preps` | one search result per food a user recognizes |
 | `food_nutrition` | wide, one REAL per `config.APP_NUTRIENTS` key (~50) | detail page (PK lookup), recommender (indexed scans) |
 | `nutrients` + `food_nutrients` | the ~200-nutrient long tail | "all nutrients" expander |
 | `food_portions` | 27.4k measures of one, bare-unit labels | logging "2 × cup" instead of grams |
@@ -135,22 +284,38 @@ win the label coalesce and ship `90000` as a serving name.
 The old `food_macros` view is gone — it re-scanned all 1M rows of the long
 table on every read.
 
-**Search** is two queries (`appdb.search_sql()`). The primary path is an FTS5
-prefix match ranked `bm25(food_fts, 10, 3, 1)` over `name` / `description` /
-`aka`, where `name` is `coalesce(display_name, description)` — the string the
-app displays. Indexing `display_name` as its own weighted column instead
-systematically promotes the enriched minority (2.4k of 13.7k rows have one):
-measured, it ranked "Ranch dip, yogurt based" above "Yogurt, Greek, plain".
-`aka` carries USDA's own Common Name / Additional Description synonyms, which
-is what makes "hot dog" find Frankfurter.
+**Search** is two queries (`appdb.search_sql()`). Both index **one row per
+item**: `rowid` in both FTS tables is `merged_food_id`, so "chicken thigh"
+returns one result rather than the 56 it used to. The primary path is an FTS5
+prefix match ranked `bm25(food_fts, 10, 2, 3, 1)` over
+`name` / `prep` / `aka` / `members` — the item's display name, its preparation
+labels, USDA's Common Name / Additional Description synonyms plus the LLM
+keywords, and the deduplicated token set of every member description.
 
-Both queries return one row per Stage 6b merged item, ranked by the group's
-best-matching variant. Every variant stays indexed — only the result set
-collapses, so "poached" still finds the egg group and shows it as "Whole raw
-egg". The weights move into `rank MATCH 'bm25(…)'`: an FTS5 auxiliary function
-is only legal in a query whose FROM is the FTS table itself, so the moment the
-match is joined to `foods`, a `bm25()` call fails outright — in a subquery and
-a plain CTE alike. Measured 1–9 ms across all 13.7k foods.
+`members` is deduplicated to a token set rather than concatenated, and that is
+load-bearing: bm25 normalizes by document length, so concatenating an 18-member
+group's descriptions would bury it under a single-member item. Measured over
+the corpus, concatenation gives 644k chars against **350k** deduplicated, and
+up to 15× on the worst groups (1,536 → 105 chars). It is safe because the app
+only ever builds implicit-AND prefix queries (`"chicken"* "brea"*`), never
+`NEAR()` or a phrase query — the only forms that need word order.
+
+Indexing the item rather than the row is also what lets the app rank by a
+composite score at all. Collapsing per-food hits needed a `GROUP BY`, and an
+FTS5 auxiliary function may not be used in an **aggregating** query — joining
+is fine, which is why the old flat query worked, but grouping raises "unable to
+use function bm25 in the requested context" at runtime. With nothing to
+collapse, `bm25()` is an ordinary expression again and can be multiplied by the
+commonness / cooked / recency / exact-match terms. The recency term now joins
+*through* `merged_food_id`, so logging a boiled egg boosts the egg item —
+something the per-food query could not express.
+
+The old finding that `display_name` must not be its own weighted column no
+longer applies: it was measured when only 2.4k of 13.7k foods had one, and it
+promoted that enriched minority ("Ranch dip, yogurt based" above "Yogurt,
+Greek, plain"). Every item is named now, so there is no minority to promote —
+`coalesce(display_name, description)` stays only as the un-enriched fallback.
+Measured 0.4–3 ms across the corpus.
 
 The fallback runs only when the primary returns too few rows. Note that
 `MATCH 'chikcen'` against a trigram index finds **nothing** — one transposition
@@ -162,7 +327,7 @@ Yogurt. Measured 0.2–7 ms across all 13.7k foods.
 **The user's log** is a *separate* writable database (`appdb.log_ddl()`),
 ATTACH-ed next to the read-only catalog. A catalog upgrade is then "replace one
 file", with no user-data migration and no copy-on-first-launch —
-`../database/MIGRATION_MERGED_FOODS.md` is what that looks like in practice for the
+`../database/MIGRATION_MERGED_ITEMS.md` is what that looks like in practice for the
 merge. Eight tables:
 
 | table | holds |

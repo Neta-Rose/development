@@ -180,21 +180,71 @@ FLUSH_EVERY = 250
 HIGH_THRESHOLD = 0.80      # confidence >= this -> auto_approved, else needs_review
 
 # --------------------------------------------------------------------------
-# Search keywords (Stage 4c)
+# Search keywords (Stage 4)
 # --------------------------------------------------------------------------
-# Kept per food. They are extra FTS text, so more is not better: every keyword
-# is another way for this food to surface on a query it does not deserve.
-MAX_KEYWORDS = 12
+# Kept per merged item. They are extra FTS text, so more is not better: every
+# keyword is another way for this item to surface on a query it does not
+# deserve. 20 rather than the 12 that applied per-food — a keyword now has to
+# cover every preparation of the item, not one USDA row.
+MAX_KEYWORDS = 20
 LONGEST_KEYWORD = 40       # chars; longer means the model wrote a sentence
+
+# Member descriptions shown per preparation in a Stage 4 request. Members of
+# one preparation are near-duplicates by construction (that is what put them
+# together), so past a handful they only cost tokens.
+MAX_GROUP_DESCRIPTIONS = 4
+
+# --------------------------------------------------------------------------
+# Canonicalization (Stage 3b-1) — the LLM pass that extracts food identity
+# --------------------------------------------------------------------------
+# Foods per request. This is a consistency knob far more than a cost one: the
+# candidates are ordered so that siblings are adjacent, so a big batch is what
+# puts "Rice, white, steamed" and "Rice, white, raw" in front of the model at
+# the same time and gets ONE base name back for both. Too big and recall on the
+# echoed index starts slipping; 40 is the compromise.
+CANON_BATCH_SIZE = 40
+
+# FNDDS ingredient descriptions shown per food. The full list runs to a dozen
+# rows of "Salt, table" / "Oil or table fat, NFS"; the head of it is what says
+# whether this is a dish.
+MAX_INPUT_FOODS = 6
+
+# What a food IS, structurally. The whole point of the distinction: a dish is
+# not a preparation of the ingredient it is made of, so fried rice can never
+# join white rice however similar the two descriptions read.
+FOOD_KINDS = ("ingredient", "dish")
+
+# Specific preparation verb -> the widest label that still describes it.
+# Preparations are bucketed by the label Stage 3b-1 read off the description;
+# when two buckets turn out to have the same macros they are one preparation,
+# and it needs a name that covers both. Grilled and baked chicken land on the
+# same numbers and are "cooked"; raw and dried have no parent and never merge
+# into anything.
+PREP_PARENT = {
+    "roasted": "cooked", "baked": "cooked", "boiled": "cooked",
+    "fried": "cooked", "grilled": "cooked", "steamed": "cooked",
+    "braised": "cooked", "broiled": "cooked", "poached": "cooked",
+    "scrambled": "cooked", "stewed": "cooked", "microwaved": "cooked",
+    "sauteed": "cooked", "blanched": "cooked", "toasted": "cooked",
+}
 
 REVIEW_STATUSES = ("pending", "auto_approved", "needs_review", "verified", "rejected")
 
 # --------------------------------------------------------------------------
 # Enrichment output enum
 # --------------------------------------------------------------------------
+# The preparation labels the UI's variant selector shows. A closed enum rather
+# than free text: the same state has to read the same way across every item, or
+# the selector shows "pan-fried" on one food and "fried" on the next.
+#
+# "cooked" is the deliberate catch-all. When grilling, boiling and baking land
+# on one macro profile they are one preparation and it is called "cooked"; the
+# specific verbs are only used when the macros actually separate them.
 PREP_TYPES = (
     "raw", "cooked", "roasted", "baked", "boiled", "fried", "grilled",
-    "steamed", "braised", "broiled", "dried", "canned", "frozen", "smoked", "toasted"
+    "steamed", "braised", "broiled", "dried", "canned", "frozen", "smoked",
+    "toasted", "poached", "scrambled", "stewed", "microwaved", "sauteed",
+    "blanched", "pickled", "cured", "breaded", "drained",
 )
 
 # --------------------------------------------------------------------------
@@ -289,7 +339,7 @@ def is_meat_dairy_category(food_category: str | None) -> bool:
 
 
 # --------------------------------------------------------------------------
-# Merge / dedup (Stage 6b)
+# Clustering / dedup (Stage 3b)
 # --------------------------------------------------------------------------
 # Which macros define "same base ingredients". Keys into APP_NUTRIENTS above,
 # not raw ids, so the fallback lists (carb_g -> 1005 then 1050) stay written
@@ -297,51 +347,55 @@ def is_meat_dairy_category(food_category: str | None) -> bool:
 MERGE_MACRO_KEYS = ("protein_g", "carb_g", "fat_g")
 assert set(MERGE_MACRO_KEYS) <= set(APP_NUTRIENTS)
 
-# Euclidean radius on the normalized protein/carb/fat simplex (each coordinate
-# is that macro's share of the three, so it sums to 1). Two foods inside this
-# radius are the same base ingredients: a ratio is invariant to water, so raw
-# and cooked land on the same point, and to seasoning, so salted and unsalted
-# do too. Adding oil moves the point off it, which is what keeps an omelette
-# out of the egg group.
+# Identity is NOT decided here any more. It is a key — the normalized
+# base_name Stage 3b-1 extracted — and two foods are the same item when that
+# key and food_kind match, full stop.
 #
-# THE tuning knob. Lower splits preparations of one food apart; higher starts
-# pulling genuinely different foods together. 0.05 was picked by inspecting the
-# egg / ground beef / milk / tilapia groups on the full corpus.
-MERGE_DISTANCE = 0.05
-
-# Foods at or above this fat share are excluded from the fat-variant path
-# below. Without it, "Chicken fat, raw" merges into "Canned chicken": on the
-# fat-free basis a pure fat looks like whatever it was rendered from.
-MERGE_PURE_FAT_RATIO = 0.90
-
-# Dropped from a display_name before it becomes a blocking key, so the key
-# names the food and nothing else. Preparation words come from PREP_TYPES;
-# the rest are qualifiers that describe handling, grade or trim rather than
-# ingredients.
+# The two thresholds that used to live here (CLUSTER_JACCARD over description
+# tokens, MERGE_DISTANCE over the protein/carb/fat simplex) are gone, and so is
+# MERGE_STOPWORDS. Measured on the 13,694-food corpus they could not be tuned
+# into agreement: word overlap cannot tell an ingredient word from a handling
+# word, so "granola bars, hard, almond" and "granola bars, hard, plain" scored
+# 0.75 and merged; and macros are not an identity signal at all, so 6,586
+# token-similar pairs were rejected by the ratio test, 698 of them the same
+# food recorded in two USDA databases. Both are semantic judgments, which is
+# why they moved to the LLM pass in canon.py.
 #
-# The other tuning surface: a word missing here splits a group that should
-# merge ("Chicken breast" vs "Chicken breast meat"), and a food word wrongly
-# added here merges two foods that should stay apart.
-MERGE_STOPWORDS = frozenset(PREP_TYPES) | frozenset({
-    # preparation verbs PREP_TYPES does not carry
-    "poached", "scrambled", "stewed", "pan", "browned", "broiled", "drained",
-    "prepared", "heated", "unheated", "refrigerated", "cooking",
-    # doneness / texture: "soft-boiled" and "hard-boiled" are the same egg
-    "soft", "hard", "firm", "tender",
-    # seasoning and salt: no meaningful macros, so not a different ingredient
-    "salt", "salted", "unsalted", "seasoned", "spice", "spiced", "pepper",
-    # grade / trim / cut descriptors
-    "lean", "fat", "trimmed", "boneless", "skinless", "separable", "retail",
-    "grade", "large", "medium", "small", "piece", "cut", "sliced", "slice",
-    "chopped", "meat",
-    # generic handling and packaging
-    "enriched", "unenriched", "pasteurized", "homemade", "recipe", "made",
-    "commercial", "commercially", "style", "variety", "type", "mix",
-    "regular", "plain", "whole", "reduced", "low", "light", "fresh", "dry",
-    "assorted", "including", "approximately", "specified", "further",
-    # function words that survive the length filter
-    "with", "without", "and", "the", "not", "added", "from", "all", "only",
-})
+# Macros still decide PREPARATIONS below, which is what they are actually
+# good at.
+
+# --- Level 3: preparations inside one item ---------------------------------
+# Members of an item are the same *preparation* when their absolute per-100 g
+# macros agree. Water is what separates preparations: raw chicken thigh is
+# 19.7 g protein and cooked is 24.8 g, because cooking drives water off.
+#
+# Relative Chebyshev distance (the worst macro's relative gap), so the test
+# means the same thing for a 2 g-protein vegetable and a 25 g-protein meat.
+# 0.20 rather than 0.15: two USDA records of roasted vs stewed thigh differ by
+# 1.6 g of fat and split at 0.163, and "grilled, boiled and baked are one
+# preparation" is the requirement. Raw vs cooked thigh is 0.50 and still splits.
+PREP_DISTANCE = 0.20
+
+# Denominator floor for the relative distance above. Without it a 1 g vs 2 g
+# fat difference reads as a 50% gap and shatters every lean vegetable into
+# singleton preparations; at 5 g a difference must clear 1 g absolute before it
+# registers at all.
+PREP_FLOOR_G = 5.0
+
+# Function words dropped when a base_name is normalized into a base_key, so
+# "beef, ground" and "ground beef" key alike.
+#
+# This is deliberately TINY, and the contrast with the 60-word MERGE_STOPWORDS
+# it replaces is the point. That list had to decide which words carried food
+# identity, and it got the call wrong in both directions ("plain" dropped,
+# merging two different granola bars; "meat" dropped, so "without meat" said
+# nothing). Nothing here can make that mistake: every word listed is a word
+# that cannot distinguish two foods on its own. The identity call is made once,
+# by canon.py, and is already baked into base_name by the time this runs.
+#
+# "with"/"without" are NOT here — "with skin" and "without meat" are exactly
+# the macro-bearing qualifiers a base_name is supposed to keep.
+BASE_KEY_STOPWORDS = frozenset({"the", "a", "an", "and", "or", "of", "in"})
 
 
 def merge_macro_nutrients() -> dict[str, tuple[int, ...]]:

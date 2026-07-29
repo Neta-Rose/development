@@ -47,6 +47,20 @@ type for search results and recents. Results rank on a composite score in SQL (c
 prep, recent logs, exact-name match), **not** bare `bm25` — which barely discriminates on a one-word
 query. See the search section of `database/APP_DATABASE.md` before touching the ORDER BY.
 
+**A search row is a merged *item*, not a USDA row.** `food_fts.rowid` is `merged_food_id`, so
+"chicken thigh" returns once rather than 56 times, and `FoodHit.foodId` is the item's *default*
+preparation — a real loggable food, but not necessarily the one the user means. The other
+preparations are `WHERE merged_food_id = ? AND food_id = prep_id`, and `n_preps > 1` is the cue to
+offer them. `bm25()` is illegal in an aggregating query, which is why search indexes items
+directly instead of collapsing foods with a `GROUP BY`; joining is fine.
+
+An item is one food a shopper picks between at the shelf; its preparations are the same food
+cooked differently. **A dish is never a preparation of an ingredient it is made of** — fried rice
+and white rice are two rows, boiled and raw rice are one. The pipeline decides that with an LLM
+pass over each USDA description (`generate-sqlite/src/canon.py`), so two `display_name`s are never
+identical by construction. If the app ever shows two rows with the same name, that is a catalog
+bug to fix upstream, not something to disambiguate in Dart.
+
 ### Two databases, one connection
 
 `AppDatabase` opens the writable log as `main` and `ATTACH`es the read-only USDA catalog beside it

@@ -27,9 +27,9 @@ def _(mo):
     stage is gated behind a run button so marimo's reactivity can never
     auto-fire ~15k API calls.
 
-    Run order: **Ingest → Cleanup → Brand flags → Sample enrich → Full
-    enrich → Review → Export**. Every stage is resumable and idempotent;
-    human-verified rows are never overwritten by re-runs.
+    Run order: **Ingest → Cleanup → Brand flags → Canonicalize → Cluster →
+    Sample enrich → Full enrich → Review → Export**. Every stage is resumable
+    and idempotent; human-verified items are never overwritten by re-runs.
     """)
     return
 
@@ -55,9 +55,22 @@ def _():
 
     load_dotenv(PROJECT_ROOT / ".env")
 
-    from src import abbrev, appdb, brand_detect, config, enrich, ingest, merge, store
+    from src import (
+        abbrev, appdb, brand_detect, canon, cluster, config, enrich, ingest, store,
+    )
 
-    return abbrev, appdb, asyncio, brand_detect, config, enrich, ingest, merge, store
+    return (
+        abbrev,
+        appdb,
+        asyncio,
+        brand_detect,
+        canon,
+        cluster,
+        config,
+        enrich,
+        ingest,
+        store,
+    )
 
 
 @app.cell
@@ -90,8 +103,7 @@ def _(con, config, ingest, ingest_button, mo, store):
     child_counts = store.upsert_ingest_children(con, _frames)
     mo.md(
         f"**Ingest done.** {len(_frames['foods']):,} foods normalized — "
-        f"inserted {ingest_counts['inserted']:,}, updated {ingest_counts['updated']:,}, "
-        f"human-verified rows skipped {ingest_counts['locked_skipped']:,}.\n\n"
+        f"inserted {ingest_counts['inserted']:,}, updated {ingest_counts['updated']:,}.\n\n"
         + " · ".join(f"{t} {n:,}" for t, n in child_counts.items())
     )
     return
@@ -207,12 +219,246 @@ def _(brand_button, brand_detect, con, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Stage 3b-1 — Canonicalize (LLM)
+
+    Reads every food's description and writes down what it **is**: a
+    `base_name` (the identity, with every cooking, grade and trim word
+    removed), a `food_kind` (`ingredient` or `dish`), and the `prep_label` this
+    particular record was prepared at. Stage 3b then groups on `base_name` and
+    `food_kind` alone.
+
+    This is the stage that replaced two hand-tuned thresholds. Word overlap
+    could not tell an ingredient word from a handling word — "granola bars,
+    hard, plain" and "granola bars, hard, almond" scored 0.75 and merged — and
+    macros are not an identity signal at all, so 6,586 token-similar pairs were
+    rejected on the ratio, 698 of them the same food in two USDA databases.
+    Both are semantic judgments, so they are asked rather than approximated.
+
+    Foods go out ~40 per request, ordered so that a food's several USDA records
+    are **adjacent**. That is the consistency mechanism, not a cost trick: the
+    model sees "Rice, white, raw" beside "Rice, white, steamed" and writes one
+    base name for both. Resumable — a food with a `base_name` is never re-sent,
+    and a batch that fails validation twice is left alone rather than written
+    half-way. Cost is a fraction of Stage 4's (~$0.12 for the full corpus).
+
+    **Run the sample first** (it uses the same model box as Stage 4, below) and
+    read the answers in the table underneath before committing to the full
+    corpus. To re-do the pass with a changed prompt:
+    `UPDATE foods SET base_name = NULL`.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    canon_sample_button = mo.ui.run_button(label="🧪 Canonicalize a sample (200 foods)")
+    canon_button = mo.ui.run_button(label="🏷️ Canonicalize all remaining foods")
+    mo.vstack([canon_sample_button, canon_button])
+    return canon_button, canon_sample_button
+
+
+@app.cell
+async def _(
+    canon,
+    canon_button,
+    canon_sample_button,
+    con,
+    concurrency_slider,
+    config,
+    enrich_model,
+    enrich_reasoning,
+    mo,
+):
+    mo.stop(
+        not (canon_sample_button.value or canon_button.value),
+        mo.md("_Click to read an identity off every un-canonicalized food._"),
+    )
+    _limit = config.SAMPLE_SIZE if canon_sample_button.value else None
+    _total = min(canon.count_candidates(con), _limit or 1 << 30)
+    _seen = [0]  # d is cumulative and throttled; the bar wants a delta
+
+    def _canon_progress(d, t, stats, elapsed):
+        _step, _seen[0] = d - _seen[0], d
+        _bar.update(
+            increment=_step,
+            subtitle=f"${stats.est_cost_usd:.4f} · {stats.failed} foods failed",
+        )
+
+    with mo.status.progress_bar(total=_total, title="Canonicalizing") as _bar:
+        canon_stats = await canon.run(
+            con, limit=_limit, model=enrich_model, reasoning=enrich_reasoning,
+            concurrency=concurrency_slider.value, progress_cb=_canon_progress,
+        )
+    mo.md(
+        f"**{canon_stats.succeeded:,}/{canon_stats.requested:,} foods canonicalized** "
+        f"({canon_stats.failed:,} failed) in {canon_stats.elapsed_s:.0f}s for "
+        f"**${canon_stats.est_cost_usd:.4f}**.\n\n"
+        f"{canon.count_candidates(con):,} foods still have no identity. "
+        f"Prompt cache: {canon_stats.cache_hit_rate:.0%}.\n"
+        + ("\n⚠️ Errors:\n" + "\n".join(canon_stats.errors[:10])
+           if canon_stats.errors else "")
+    )
+    return (canon_stats,)
+
+
+@app.cell(hide_code=True)
+def _(canon_stats, con, mo):
+    # Read the answers before spending on the rest of the corpus. Grouped by
+    # base_key, because that is what clustering will actually do with them —
+    # a base name that reads fine in isolation can still be one that collapses
+    # two foods, and only the grouping shows it. Naming canon_stats is what
+    # makes this re-run after a pass rather than on a cold kernel.
+    canon_stats
+    mo.ui.table(
+        con.execute(
+            """
+            SELECT base_key, any_value(food_kind) AS kind, count(*) AS n_foods,
+                   string_agg(DISTINCT coalesce(prep_label, '—'), ', ') AS preps,
+                   string_agg(description, ' | ' ORDER BY fdc_id) AS members
+            FROM foods WHERE base_name IS NOT NULL
+            GROUP BY base_key ORDER BY n_foods DESC, base_key
+            LIMIT 500
+            """
+        ).pl(),
+        label="Identities, biggest first — check that nothing here is two foods",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Stage 3b — Cluster into items and preparations
+
+    Groups the corpus into the two-level structure the app shows: an **item**
+    (one row in the search list) holding one or more **preparations** (the
+    variant selector). Fills `merged_foods`, `merged_preps`, and points every
+    `foods.merged_food_id` / `foods.prep_id` at them.
+
+    An item is every food sharing a `base_key` and a `food_kind` — identity is
+    a **key**, not a pairwise test, which is what makes it transitive for free.
+    `food_kind` is in the key because a dish is never a preparation of an
+    ingredient it is made of: fried rice cannot join white rice, whatever the
+    words or the numbers say.
+
+    Within an item, preparations start from the labels Stage 3b-1 read off the
+    descriptions and are then **merged** where the macros agree — grilled,
+    boiled and baked land on one profile and become one preparation called
+    "cooked". Labels first is what stops the same food recorded in two USDA
+    databases with different numbers from becoming two preparations. Foods sold
+    at a stated fat level (`80% lean`, `2% milkfat`) key alike and the item is
+    marked `variable_fat`.
+
+    Deterministic, no LLM, idempotent, and **non-destructive** — re-running it
+    keeps every name Stage 4 produced and only re-queues the items whose
+    membership actually moved. ~2 s on the full corpus.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    cluster_button = mo.ui.run_button(label="🔗 Cluster into items")
+    cluster_button
+    return (cluster_button,)
+
+
+@app.cell
+def _(cluster, cluster_button, con, mo):
+    mo.stop(not cluster_button.value, mo.md("_Click to rebuild the item/preparation grouping from the current pipeline state._"))
+    _c = cluster.run(con)
+    _kept = _c["items"] / _c["foods"] if _c["foods"] else 1.0
+    mo.md(
+        f"**{_c['foods']:,} foods → {_c['items']:,} items / {_c['preps']:,} preparations** "
+        f"({1 - _kept:.0%} fewer rows in search)\n\n"
+        f"- {_c['multi_food_items']:,} items hold more than one food\n"
+        f"- {_c['multi_prep_items']:,} items have more than one preparation\n"
+        f"- {_c['dishes']:,} foods are dishes rather than ingredients\n"
+        f"- {_c['variable_fat']:,} span fat levels (`variable_fat`)\n"
+        f"- largest item: {_c['largest_item']:,} foods\n\n"
+        f"Enrichment state: {_c['created']:,} new, {_c['requeued']:,} re-queued "
+        f"(membership changed), {_c['dissolved']:,} dissolved.\n"
+        + (f"\n⚠️ {_c['uncanonicalized']:,} foods have no `base_name` and are "
+           "singleton items — run Stage 3b-1.\n" if _c["uncanonicalized"] else "")
+        + (f"\n⚠️ {len(_c['kind_splits'])} identities are split by a disagreeing "
+           "`food_kind`, so each is two items instead of one: "
+           f"`{'`, `'.join(_c['kind_splits'][:8])}`. Re-canonicalize just those "
+           "foods (`UPDATE foods SET base_name = NULL WHERE base_key IN (…)`).\n"
+           if _c["kind_splits"] else "")
+        + ("\n⚠️ An item this large is two foods sharing a base name — find it "
+           "in the Stage 3b-1 table above and fix the prompt, not a threshold."
+           if _c["largest_item"] > 60 else "")
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(cluster_button, con, mo, store):
+    # Read-only browser over whatever is in merged_foods, so it works on a fresh
+    # kernel without re-running the stage; naming cluster_button re-queries it
+    # once the stage does run. Items that look wrong here are fixed in
+    # the canon.py prompt: a base name that is two foods, or one food written
+    # two ways. There is no threshold to turn here any more.
+    cluster_button
+    cluster_list = store.cluster_items(con, min_size=2)
+    cluster_table = mo.ui.table(
+        cluster_list,
+        selection="single",
+        page_size=10,
+        label=(
+            f"**{len(cluster_list):,} items** built from more than one food — "
+            "select one to see its preparations and members."
+            if len(cluster_list)
+            else "_No multi-food items yet — run the stage above._"
+        ),
+    )
+    cluster_table
+    return (cluster_table,)
+
+
+@app.cell(hide_code=True)
+def _(cluster_table, con, mo, store):
+    _sel = cluster_table.value
+    mo.stop(not len(_sel), mo.md("_Select an item above to see the foods it was built from._"))
+    _g = _sel.to_dicts()[0]
+    _members = store.cluster_members(con, _g["merged_food_id"])
+    mo.vstack([
+        mo.md(
+            f"### {_g['emoji'] or ''} {_g['display_name'] or '_(not yet named)_'}\n\n"
+            f"`merged_food_id {_g['merged_food_id']}` · **{_g['n_foods']} foods** in "
+            f"**{_g['n_preps']} preparations** · {_g['food_category'] or '—'}"
+            + (f" · preparations: {_g['preps']}" if _g["preps"] else "")
+            + (" · **variable_fat** (spans fat levels)" if _g["variable_fat"] else "")
+        ),
+        mo.ui.table(_members, selection=None, page_size=25),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Stage 4 — LLM enrichment (OpenRouter)
 
-    **Always run the sample first.** It processes ~200 rows, measures
-    token usage and latency, and extrapolates cost for the full corpus
-    before you commit to it. Both runs are resumable: completed rows are
-    skipped, human-verified rows are never re-enriched.
+    One request per **item** from Stage 3b, asking only how to *present* it:
+    display_name, emoji, keywords, commonness. Everything factual was settled
+    upstream — Stage 3b-1 read each member's identity and preparation off its
+    description, and Stage 3b grouped on that — so this pass no longer types
+    preparations and no longer decides anything clustering depends on.
+
+    `display_name` is the item's `base_name`, written the way a label would
+    write it. It must keep every qualifier the base carries (that is what
+    separates this item from the one beside it) and must never add a
+    preparation word (the preparation is joined back at display time). Both are
+    checked deterministically in `store.cross_check`, and a name that fails
+    goes to review whatever confidence the model claimed.
+
+    The model box below is shared with Stage 3b-1.
+
+    **Always run the sample first.** It processes ~200 items, measures token
+    usage and latency, and extrapolates cost for the full corpus before you
+    commit to it. Both runs are resumable: completed items are skipped,
+    human-verified items are never re-enriched.
     """)
     return
 
@@ -360,171 +606,24 @@ async def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Stage 4b — Commonness score (separate LLM pass)
-
-    Rates every food 0–1 on how commonly it is eaten and how likely it is
-    to be in an ordinary kitchen (eggs ≈ 1, parmesan ≈ 0.4, turtle meat
-    ≈ 0.05) into `foods.commonness`. Independent of Stage 4: its own short
-    prompt, its own queue (rows where `commonness IS NULL`), and it never
-    touches names or emoji. Uses the model / concurrency set above.
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    commonness_button = mo.ui.run_button(label="🥚 Run commonness pass (spends real money)")
-    commonness_button
-    return (commonness_button,)
-
-
-@app.cell(hide_code=True)
-async def _(
-    commonness_button,
-    con,
-    concurrency_slider,
-    enrich,
-    enrich_model,
-    enrich_reasoning,
-    mo,
-    store,
-):
-    mo.stop(not commonness_button.value, mo.md("_Click to score every unscored row._"))
-    _todo = store.count_enrichment_candidates(con, enrich.CommonnessEnricher.candidate_where)
-
-    _seen = [0]  # d is cumulative and throttled; the bar wants a delta
-
-    def _commonness_progress(d, t, stats, elapsed):
-        tok_s = (stats.prompt_tokens + stats.completion_tokens) / elapsed if elapsed else 0
-        _step, _seen[0] = d - _seen[0], d
-        _bar.update(
-            increment=_step,
-            subtitle=f"{tok_s:,.0f} tok/s · ${stats.est_cost_usd:.4f} · {stats.failed} failed",
-        )
-
-    with mo.status.progress_bar(total=_todo, title="Scoring commonness") as _bar:
-        commonness_stats = await enrich.run(
-            con, limit=None,
-            model=enrich_model, reasoning=enrich_reasoning,
-            concurrency=concurrency_slider.value,
-            progress_cb=_commonness_progress,
-            enricher_cls=enrich.CommonnessEnricher,
-        )
-    mo.md(
-        f"""
-        **Commonness pass done** ({commonness_stats.succeeded:,}/{commonness_stats.requested:,} ok,
-        {commonness_stats.failed} failed) in {commonness_stats.elapsed_s / 60:.1f} min —
-        **${commonness_stats.est_cost_usd:.2f}** actual token cost.
-        Failed rows keep `commonness = NULL` and are picked up by the next run.
-        """
-        + ("\n\n⚠️ Errors (first 10):\n" + "\n".join(commonness_stats.errors[:10])
-           if commonness_stats.errors else "")
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Stage 4c — Search keywords (separate LLM pass)
-
-    Generates 6–12 search terms per food — synonyms and regional names,
-    the core ingredients of a dish, cuisine/origin, meal occasion — into
-    `foods.keywords`. Independent of Stages 4 and 4b: its own prompt, its
-    own queue (rows where `keywords IS NULL`), and it touches nothing else.
-    Stage 7 appends them to the `aka` column of the app's FTS index, so
-    "fettuccine" or "italian" finds an alfredo pasta. Uses the model /
-    concurrency set above.
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    keywords_button = mo.ui.run_button(label="🔎 Run keywords pass (spends real money)")
-    keywords_button
-    return (keywords_button,)
-
-
-@app.cell(hide_code=True)
-async def _(
-    con,
-    concurrency_slider,
-    enrich,
-    enrich_model,
-    enrich_reasoning,
-    keywords_button,
-    mo,
-    store,
-):
-    mo.stop(not keywords_button.value, mo.md("_Click to add keywords to every row without them._"))
-    _todo = store.count_enrichment_candidates(con, enrich.KeywordsEnricher.candidate_where)
-
-    _seen = [0]  # d is cumulative and throttled; the bar wants a delta
-
-    def _keywords_progress(d, t, stats, elapsed):
-        tok_s = (stats.prompt_tokens + stats.completion_tokens) / elapsed if elapsed else 0
-        _step, _seen[0] = d - _seen[0], d
-        _bar.update(
-            increment=_step,
-            subtitle=f"{tok_s:,.0f} tok/s · ${stats.est_cost_usd:.4f} · {stats.failed} failed",
-        )
-
-    with mo.status.progress_bar(total=_todo, title="Generating keywords") as _bar:
-        keywords_stats = await enrich.run(
-            con, limit=None,
-            model=enrich_model, reasoning=enrich_reasoning,
-            concurrency=concurrency_slider.value,
-            progress_cb=_keywords_progress,
-            enricher_cls=enrich.KeywordsEnricher,
-        )
-    mo.md(
-        f"""
-        **Keywords pass done** ({keywords_stats.succeeded:,}/{keywords_stats.requested:,} ok,
-        {keywords_stats.failed} failed) in {keywords_stats.elapsed_s / 60:.1f} min —
-        **${keywords_stats.est_cost_usd:.2f}** actual token cost.
-        Failed rows keep `keywords = NULL` and are picked up by the next run.
-        Re-run Stage 7 to get them into the app's search index.
-        """
-        + ("\n\n⚠️ Errors (first 10):\n" + "\n".join(keywords_stats.errors[:10])
-           if keywords_stats.errors else "")
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(con, mo, store):
-    _sample = con.execute(
-        "SELECT coalesce(display_name, description) AS food, keywords FROM foods "
-        "WHERE keywords IS NOT NULL ORDER BY random() LIMIT 15"
-    ).pl()
-    mo.vstack([
-        mo.md(f"**{store.count_enrichment_candidates(con, store.KEYWORDS_PENDING):,}** "
-              "rows still have no keywords. A random sample of the ones that do:"),
-        mo.ui.table(_sample, selection=None),
-    ])
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
     ## Model / prompt comparison (read-only)
 
-    Sample random rows and run them through several
+    Sample random **items** and run them through several
     **model : reasoning** configs side by side — one per line, e.g.
     `openai/gpt-4o-mini:high`. The reasoning field is optional and takes an
     effort level (`low`/`medium`/`high`), a token budget (e.g. `512`), or `off`;
     omit it to disable reasoning. The prompt (`STATIC_INSTRUCTIONS`) is shared
     across all configs. Nothing is written to DuckDB; this only shows raw model
-    outputs so you can eyeball naming quality.
+    outputs so you can eyeball naming and preparation-labelling quality.
+
+    Run Stage 3b first — this samples from the same queue Stage 4 uses.
     """)
     return
 
 
 @app.cell
 def _(con, store):
-    compare_pool = store.select_enrichment_candidates(con)  # all candidates, sampled below
+    compare_pool = store.select_enrichment_candidates(con)  # all pending items, sampled below
     return (compare_pool,)
 
 
@@ -591,30 +690,37 @@ async def _(
     mo.stop(not _specs, mo.md("_Enter at least one `model[:reasoning]`._"))
     _rows = compare_pool.sample(n=cmp_n.value, seed=cmp_seed.value).to_dicts()
 
-    async def _one_row(enr, row):
-        # the Enricher's semaphore + pacer bound this; without gather the rows
+    async def _one_item(enr, row):
+        # the Enricher's semaphore + pacer bound this; without gather the items
         # would go out strictly serially
         try:
             _it = await enr._fetch(row)
         except Exception as exc:
-            return row["fdc_id"], f"⚠️ {type(exc).__name__}: {exc}"
-        return row["fdc_id"], (
-            f"{_it.display_name}  ·  prep={_it.prep_type or '—'}"
-            f"  ·  conf={_it.confidence:.2f}  ·  vf={_it.variable_fat}"
+            return row["merged_food_id"], f"⚠️ {type(exc).__name__}: {exc}"
+        _preps = " / ".join(
+            p.prep_type or "—" for p in sorted(_it.preps, key=lambda p: p.i)
+        )
+        return row["merged_food_id"], (
+            f"{_it.emoji} {_it.display_name}  ·  [{_preps}]"
+            f"  ·  conf={_it.confidence:.2f}  ·  common={_it.commonness:.2f}"
+            f"\n{', '.join(_it.keywords)}"
         )
 
     async def _run_model(model, reasoning):
         _enr = enrich.Enricher(con, model=model, instructions=cmp_prompt.value, reasoning=reasoning)
-        return dict(await asyncio.gather(*(_one_row(_enr, _r) for _r in _rows)))
+        return dict(await asyncio.gather(*(_one_item(_enr, _r) for _r in _rows)))
 
-    with mo.status.spinner(title=f"Running {len(_specs)} config(s) × {len(_rows)} rows…"):
+    with mo.status.spinner(title=f"Running {len(_specs)} config(s) × {len(_rows)} items…"):
         _results = {label: await _run_model(model, reasoning) for label, model, reasoning in _specs}
 
     _table = [
         {
-            "fdc_id": _r["fdc_id"],
-            "description": _r["description"],
-            **{label: _results[label].get(_r["fdc_id"], "") for label, *_ in _specs},
+            "item": _r["merged_food_id"],
+            # the item has no name yet — show what the model was actually given
+            "members": " | ".join(
+                _d for _p in _r["preps"] for _d in _p["descs"]
+            )[:160],
+            **{label: _results[label].get(_r["merged_food_id"], "") for label, *_ in _specs},
         }
         for _r in _rows
     ]
@@ -649,9 +755,9 @@ def _(con, get_review_version, store):
 
 
 @app.cell(hide_code=True)
-def _(config, mo, review_df):
+def _(mo, review_df):
     _row = review_df.to_dicts()[0] if len(review_df) else None
-    selected_fdc_id = _row["fdc_id"] if _row else None
+    selected_item_id = _row["merged_food_id"] if _row else None
 
     edit_display_name = mo.ui.text(
         value=(_row.get("display_name") or "") if _row else "",
@@ -662,14 +768,10 @@ def _(config, mo, review_df):
         value=(_row.get("emoji") or "") if _row else "",
         label="emoji",
     )
-    edit_prep_type = mo.ui.dropdown(
-        options=list(config.PREP_TYPES),
-        value=(_row.get("prep_type") if _row and _row.get("prep_type") in config.PREP_TYPES else None),
-        label="prep_type (empty = null)",
-    )
-    edit_variable_fat = mo.ui.switch(
-        value=bool(_row.get("variable_fat")) if _row else False,
-        label="variable_fat",
+    edit_keywords = mo.ui.text(
+        value=(_row.get("keywords") or "") if _row else "",
+        label="keywords ('; '-joined)",
+        full_width=True,
     )
     accept_button = mo.ui.run_button(
         label="✅ Accept (verify + lock) · alt+a", kind="success", keyboard_shortcut="Alt-a",
@@ -678,13 +780,19 @@ def _(config, mo, review_df):
         label="❌ Reject · alt+x", kind="danger", keyboard_shortcut="Alt-x",
     )
 
+    # prep_type is not editable here: it is derived from the canonicalized
+    # labels now, so an edit would be overwritten by the next cluster.run().
+    # Fix it upstream, in foods.prep_label.
     _context = (
         mo.md(
-            f"**{len(review_df):,} left** · **fdc_id {_row['fdc_id']}** · {_row['data_type']} · "
+            f"**{len(review_df):,} left** · **item {_row['merged_food_id']}** · "
             f"{_row['food_category'] or '—'}\n\n"
             f"description: `{_row['description']}`\n\n"
-            f"fat %: {_row['fat_percentage']} · brand_flagged: {_row['brand_flagged']} · "
-            f"confidence: {_row['confidence']}"
+            f"{_row['n_foods']} foods in {_row['n_preps']} preparations"
+            + (f" ({_row['preps']})" if _row["preps"] else "")
+            + f" · brand_flagged: {_row['brand_flagged']}"
+            + f" · variable_fat: {_row['variable_fat']}"
+            + f" · confidence: {_row['confidence']}"
         )
         if _row
         else mo.md("🎉 _Review queue empty._")
@@ -692,18 +800,51 @@ def _(config, mo, review_df):
     mo.vstack([
         _context,
         edit_display_name,
-        mo.hstack([edit_emoji, edit_prep_type, edit_variable_fat], justify="start"),
+        edit_keywords,
+        mo.hstack([edit_emoji], justify="start"),
         mo.hstack([accept_button, reject_button], justify="start"),
     ])
     return (
         accept_button,
         edit_display_name,
         edit_emoji,
-        edit_prep_type,
-        edit_variable_fat,
+        edit_keywords,
         reject_button,
-        selected_fdc_id,
+        selected_item_id,
     )
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM "merged_foods" WHERE review_status != 'pending' LIMIT 100
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM "merged_preps" where merged_food_id = '167778' LIMIT 100
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM "foods" where fdc_id = '167778' LIMIT 100
+        """,
+        engine=con
+    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -712,124 +853,30 @@ def _(
     con,
     edit_display_name,
     edit_emoji,
-    edit_prep_type,
-    edit_variable_fat,
+    edit_keywords,
     mo,
     reject_button,
-    selected_fdc_id,
+    selected_item_id,
     set_review_version,
     store,
 ):
     mo.stop(not (accept_button.value or reject_button.value))
-    mo.stop(selected_fdc_id is None, mo.md("_No row selected._"))
+    mo.stop(selected_item_id is None, mo.md("_No item selected._"))
     _accept = bool(accept_button.value)
     _ok = store.apply_human_review(
         con,
-        selected_fdc_id,
+        selected_item_id,
         display_name=edit_display_name.value or None,
         emoji=edit_emoji.value or None,
-        prep_type=edit_prep_type.value,
-        variable_fat=edit_variable_fat.value,
+        keywords=edit_keywords.value or None,
         accept=_accept,
     )
     set_review_version(lambda v: v + 1)
     mo.md(
-        f"{'✅ Verified' if _accept else '❌ Rejected'} fdc_id {selected_fdc_id}."
+        f"{'✅ Verified' if _accept else '❌ Rejected'} item {selected_item_id}."
         if _ok
-        else f"⚠️ fdc_id {selected_fdc_id} not found."
+        else f"⚠️ item {selected_item_id} not found."
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Stage 6b — Merge duplicate foods
-
-    Groups foods that are the same item into `merged_foods` and points each
-    `foods.merged_food_id` at its group, so preparations and fat levels hang
-    off one entry instead of showing up as separate search results.
-
-    Two foods are the same item when the same base ingredients drive their
-    macros, which shows up as the same **protein:carb:fat ratio**. A ratio is
-    invariant to water (raw and cooked land on the same point) and to seasoning
-    (salt and pepper carry no macros), but not to a macro-bearing addition — so
-    an omelette's oil moves it off the egg point and it stays separate. Foods
-    sold at a stated fat level (`80% lean`, `2% milkfat`) are the deliberate
-    exception: they merge across the fat axis and the group is marked
-    `variable_fat`.
-
-    Deterministic, no LLM, and idempotent — re-run it after tuning
-    `config.MERGE_DISTANCE` or `config.MERGE_STOPWORDS`, which are the two
-    knobs. Runs in under a second on the full corpus.
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    merge_button = mo.ui.run_button(label="🔗 Merge duplicate foods")
-    merge_button
-    return (merge_button,)
-
-
-@app.cell
-def _(con, merge, merge_button, mo):
-    mo.stop(not merge_button.value, mo.md("_Click to rebuild the merge groups from the current pipeline state._"))
-    _c = merge.run(con)
-    _kept = _c["merged_foods"] / _c["foods"] if _c["foods"] else 1.0
-    mo.md(
-        f"**{_c['foods']:,} foods → {_c['merged_foods']:,} merged items** "
-        f"({1 - _kept:.0%} fewer)\n\n"
-        f"- {_c['groups']:,} groups hold more than one food\n"
-        f"- {_c['variable_fat']:,} span fat levels (`variable_fat`)\n"
-        f"- largest group: {_c['largest_group']:,} foods\n"
-        + ("\n⚠️ A group this large means the blocking key regressed — check "
-           "`config.MERGE_STOPWORDS` for a word that should not be there."
-           if _c["largest_group"] > 60 else "")
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(con, merge_button, mo, store):
-    # Read-only browser over whatever is in merged_foods, so it works on a fresh
-    # kernel without re-running the stage; naming merge_button re-queries it once
-    # the stage does run. Groups that look wrong here are fixed in
-    # config.MERGE_DISTANCE (too wide/narrow) or MERGE_STOPWORDS (bad key).
-    merge_button
-    merged_groups = store.merge_groups(con, min_size=2)
-    merge_table = mo.ui.table(
-        merged_groups,
-        selection="single",
-        page_size=10,
-        label=(
-            f"**{len(merged_groups):,} merged items** built from more than one food — "
-            "select one to see what it merged from."
-            if len(merged_groups)
-            else "_No multi-food groups yet — run the stage above._"
-        ),
-    )
-    merge_table
-    return (merge_table,)
-
-
-@app.cell(hide_code=True)
-def _(con, merge_table, mo, store):
-    _sel = merge_table.value
-    mo.stop(not len(_sel), mo.md("_Select a merged item above to see the foods it merged from._"))
-    _g = _sel.to_dicts()[0]
-    _members = store.merge_members(con, _g["merged_food_id"])
-    mo.vstack([
-        mo.md(
-            f"### {_g['emoji'] or ''} {_g['display_name']}\n\n"
-            f"`merged_food_id {_g['merged_food_id']}` · **{_g['n_foods']} foods** · "
-            f"{_g['food_category'] or '—'} · group ratio p/c/f "
-            f"{_g['p']} / {_g['c']} / {_g['f']}"
-            + (" · **variable_fat** (merged across fat levels)" if _g["variable_fat"] else "")
-        ),
-        mo.ui.table(_members, selection=None, page_size=25),
-    ])
     return
 
 
@@ -842,9 +889,9 @@ def _(mo):
     (`app_*` here), then writes `../database/foods.sqlite` — the read-only
     catalog the app bundles, with its FTS5 search indexes already built.
 
-    **Run Stage 6b first.** The catalog carries the merge groups, and
-    search collapses to one row per group; without them every food
-    exports as its own singleton and the app shows four eggs again.
+    **Run Stage 3b first.** The catalog is indexed one row per item, not
+    per food; without the grouping every food exports as its own singleton
+    and the app shows four eggs again.
 
     Derived and idempotent: safe to re-run after any enrichment or
     review pass, and it never writes to the pipeline tables.
@@ -865,14 +912,15 @@ def _(appdb, con, config, export_button, mo):
     _counts = appdb.run(con, config.SQLITE_PATH)
     _mb = _counts.pop("_bytes") / 1e6
     _missing = con.execute(
-        "SELECT count(*) FROM app_foods WHERE emoji IS NULL"
+        "SELECT count(*) FROM app_merged_foods WHERE display_name IS NULL"
     ).fetchone()[0]
     mo.md(
         f"Wrote `{config.SQLITE_PATH}` — **{_mb:.1f} MB**\n\n"
         + "\n".join(f"- `{_t}`: {_n:,} rows" for _t, _n in _counts.items())
-        + (f"\n\n⚠️ {_missing:,} foods still have no emoji — re-run Stage 5."
+        + (f"\n\n⚠️ {_missing:,} items are still unnamed — re-run Stage 4. They "
+           "fall back to their USDA description in search."
            if _missing else "")
-        + ("\n\n⚠️ Every food exported as its own merged item — Stage 6b has "
+        + ("\n\n⚠️ Every food exported as its own item — Stage 3b has "
            "not run against this database, so the catalog collapses nothing."
            if _counts["merged_foods"] == _counts["foods"] else "")
     )

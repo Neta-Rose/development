@@ -9,6 +9,7 @@
 .buildlog/
 .history
 .svn/
+generate-sqlite/__marimo__
 .swiftpm/
 migrate_working_dir/
 .agents

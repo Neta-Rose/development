@@ -106,10 +106,13 @@ class CatalogRepository {
     final since =
         localDate(DateTime.now().subtract(const Duration(days: recencyDays)));
 
+    // Weights are per FTS column: name, prep, aka, members. `members` is the
+    // deduplicated token set of every USDA description in the item, so it is
+    // the broadest and least precise signal and is weighted lowest.
     var hits = await _catalogSearch(
       'food_fts',
       prefixQuery(term),
-      'bm25(food_fts, 10.0, 3.0, 1.0)',
+      'bm25(food_fts, 10.0, 2.0, 3.0, 1.0)',
       term,
       since,
       limit,
@@ -134,9 +137,20 @@ class CatalogRepository {
     return [...await _customSearch(term, since), ...hits];
   }
 
-  // The join to catalog.foods always resolves: food_fts is contentless with
-  // rowid = food_id. Only the recency join is LEFT — most foods were never
-  // logged.
+  // One row per merged item, not per USDA record: `rowid` in both FTS tables
+  // is `merged_food_id`, so "chicken thigh" returns one result instead of the
+  // 56 it used to. Both joins always resolve — the FTS tables are contentless
+  // with rowid = merged_food_id, and merged_food_id is itself a real food_id
+  // (the item's default preparation, which is the row whose macros are shown
+  // and the one logged if the user never opens the variant picker). Only the
+  // recency join is LEFT: most foods were never logged.
+  //
+  // That granularity is also what makes the composite score below legal at
+  // all. Collapsing per-food hits needed a GROUP BY, and an FTS5 auxiliary
+  // function may not be used in an aggregating query — joining is fine, which
+  // is why the old flat query worked, but grouping raises "unable to use
+  // function bm25 in the requested context" at runtime. With nothing to
+  // collapse, bm25() is an ordinary expression again.
   //
   // Ranking is a composite score, not raw bm25. For a one-word query bm25
   // barely discriminates (every "pasta" hit scores between -8.95 and -8.78),
@@ -151,13 +165,17 @@ class CatalogRepository {
   //  * It is multiplicative, not additive, because the bm25 spread depends on
   //    the query ("chicken" spans 0.37, "chicken brea" spans 2.35). Scaling by
   //    bm25 magnitude keeps one set of weights honest across both.
-  //  * `prep_type IS 'cooked'` must use IS, not =. prep_type is 52% NULL, and
-  //    `= 'cooked'` yields NULL there, which poisons the whole product and
-  //    sorts those rows *first*.
+  //  * `prep_type IS 'cooked'` must use IS, not =. prep_type is NULL on about
+  //    half of all items, and `= 'cooked'` yields NULL there, which poisons the
+  //    whole product and sorts those rows *first*.
   //
   // The sort must also happen before the LIMIT, which is why it lives in SQL:
   // "Cooked pasta" sits at bm25 ranks 26 and 41-45 of 182, so re-ranking an
   // already-limited pool in Dart would never see it.
+  //
+  // The recency term joins *through* merged_food_id, so logging a boiled egg
+  // boosts the egg item however the user later spells the search — something
+  // the per-food query could not express.
   //
   // ponytail: recency is frequency-only, saturating at 3 logs, with no decay
   // inside the window. Add a `last_at` decay term if a stale one-off starts
@@ -166,32 +184,36 @@ class CatalogRepository {
       String term, String since, int limit) async {
     if (match.isEmpty) return const [];
     final rows = await _db.customSelect(
-      'SELECT f.food_id, coalesce(f.display_name, f.description) AS name, '
-      'f.emoji, f.kcal_100g, f.protein_100g, f.fat_100g, f.carb_100g, '
-      'f.serving_g, f.serving_label '
+      'SELECT s.rowid AS food_id, '
+      'coalesce(m.display_name, c.description) AS name, m.emoji, '
+      'c.kcal_100g, c.protein_100g, c.fat_100g, c.carb_100g, '
+      'c.serving_g, c.serving_label, m.n_preps '
       'FROM $table s '
-      'JOIN catalog.foods f ON f.food_id = s.rowid '
-      'LEFT JOIN (SELECT food_id, count(*) AS n FROM log_entries '
-      '            WHERE deleted = 0 AND food_id IS NOT NULL '
-      '              AND local_date >= ?1 '
-      '            GROUP BY food_id) r ON r.food_id = f.food_id '
+      'JOIN catalog.merged_foods m ON m.merged_food_id = s.rowid '
+      'JOIN catalog.foods c ON c.food_id = s.rowid '
+      'LEFT JOIN (SELECT cf.merged_food_id AS mid, count(*) AS n '
+      '             FROM log_entries l '
+      '             JOIN catalog.foods cf ON cf.food_id = l.food_id '
+      '            WHERE l.deleted = 0 AND l.food_id IS NOT NULL '
+      '              AND l.local_date >= ?1 '
+      '            GROUP BY cf.merged_food_id) r ON r.mid = s.rowid '
       'WHERE $table MATCH ?2 '
       'ORDER BY $rank * (1 '
       // How likely this food is in an ordinary kitchen at all.
-      '  + 1.0 * coalesce(f.commonness, 0.4) '
+      '  + 1.0 * coalesce(m.commonness, 0.4) '
       // Commonness measures pantry presence, not what you log: dry pasta
       // scores 1.0 but nobody eats it dry.
-      "  + 0.3 * (f.prep_type IS 'cooked') "
+      "  + 0.3 * (m.prep_type IS 'cooked') "
       // Recently logged, saturating so a daily staple can't run away with it.
       '  + 1.5 * min(coalesce(r.n, 0), 3) / 3.0 '
       // "rice" should find Rice, not Brown rice sesame cakes.
-      '  + 0.6 * (lower(coalesce(f.display_name, f.description)) = lower(?3)) '
+      '  + 0.6 * (lower(coalesce(m.display_name, c.description)) = lower(?3)) '
       // Institutional and infant variants of an otherwise ordinary food.
-      "  - 0.3 * (lower(coalesce(f.display_name, '') || ' ' || f.description) "
+      "  - 0.3 * (lower(coalesce(m.display_name, '') || ' ' || c.description) "
       "             LIKE '%restaurant%' "
-      "        OR lower(coalesce(f.display_name, '') || ' ' || f.description) "
+      "        OR lower(coalesce(m.display_name, '') || ' ' || c.description) "
       "             LIKE '%school lunch%' "
-      "        OR lower(coalesce(f.display_name, '') || ' ' || f.description) "
+      "        OR lower(coalesce(m.display_name, '') || ' ' || c.description) "
       "             LIKE '%baby food%') "
       ') LIMIT ?4',
       // Numbered, not bare `?`: bare placeholders bind in order of appearance

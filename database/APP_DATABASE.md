@@ -45,45 +45,55 @@ A catalog upgrade is "replace one file". Never write to it, and never store a fo
 | `commonness` | REAL | 0.05–1.0, how likely this is in an ordinary kitchen (eggs ≈ 1) |
 | `kcal_100g`, `protein_100g`, `fat_100g`, `carb_100g` | REAL | denormalized copy of the 4 list macros |
 | `serving_g`, `serving_label` | REAL, TEXT | default serving = `food_portions` seq 1. 88% populated |
-| `merged_food_id` | INTEGER NOT NULL | the item this food is one preparation or fat level of. Indexed |
+| `merged_food_id` | INTEGER NOT NULL | the **item** this food belongs to. Indexed |
+| `prep_id` | INTEGER NOT NULL | the **preparation** this food belongs to; `= food_id` on the one that represents it |
 
-Display name is `coalesce(display_name, description)`.
+`display_name`, `emoji`, `commonness` and `variable_fat` are denormalized **down** from the
+item, and `prep_type` across from the preparation, so every food carries the strings the app
+shows — `log_entries` snapshots them per food. Display name is
+`coalesce(display_name, description)`.
 
-## `merged_foods` — 10,000 rows, one per food a user recognizes
+## `merged_foods` — 8,335 rows, one per food a user recognizes
 
-The catalog holds one row per USDA record, so a user searching for "egg" meets four of them and
-ground beef is nine rows at nine fat levels. This table groups the rows whose macros come from
-the same base ingredients; `foods.merged_food_id` points each food at its group.
+The catalog holds one row per USDA record, so a user searching for "chicken thigh" used to meet
+56 of them and ground beef is nine rows at nine fat levels. This table is the **item**: one row
+in the search list. `foods.merged_food_id` points each food at its item.
 
 | column | type | notes |
 | --- | --- | --- |
-| `merged_food_id` | INTEGER PK | **is** the canonical variant's `food_id` — a real, loggable food |
-| `display_name` | TEXT NOT NULL | that variant's name, e.g. `Whole raw egg` |
-| `emoji` | TEXT | 9,999 of 10,000 have one |
-| `category` | TEXT | that variant's `category`, 100% populated |
-| `variable_fat` | INTEGER NOT NULL | 1 when the group was formed *across fat levels*. Only 10 groups |
-| `n_foods` | INTEGER NOT NULL | group size, 1–29 (largest: `Ground beef`). 2,192 hold more than one |
+| `merged_food_id` | INTEGER PK | **is** the default preparation's `food_id` — a real, loggable food |
+| `display_name` | TEXT | the item's name, e.g. `Chicken thigh`. NULL until Stage 4 runs |
+| `emoji` | TEXT | one emoji for the item |
+| `prep_type` | TEXT | the **default** preparation's label; what the ranking's cooked-food bonus reads |
+| `category` | TEXT | the default member's USDA category |
+| `commonness` | REAL | 0.05–1.0, how likely this is in an ordinary kitchen (eggs ≈ 1) |
+| `variable_fat` | INTEGER NOT NULL | 1 when the item spans fat levels (ground beef, milk) |
+| `n_foods` | INTEGER NOT NULL | member count, 1–19. 2,855 hold more than one |
+| `n_preps` | INTEGER NOT NULL | preparations, 1–6. 1,722 items have more than one |
 
-**Total by construction**: every `foods` row has exactly one group and `sum(n_foods) = 13,694`,
-so this join never drops a food. 7,808 groups are a lone food; 5,886 foods (43%) have siblings.
+**Total by construction**: every `foods` row has exactly one item and `sum(n_foods) = 13,694`,
+so this join never drops a food.
 
-A group has no nutrition of its own — its macros, portions and nutrients are the `foods` row
-where `food_id = merged_food_id`. Only the three display columns above are duplicated.
+An item has no nutrition of its own — its macros, portions and nutrients are the `foods` row
+where `food_id = merged_food_id`.
 
-The variants behind one group, which is the whole picker:
+The **preparations** behind one item, which is the whole picker. Each is a real loggable food
+with its own macros, and `food_id = prep_id` is what marks the one that represents it:
 
 ```sql
-SELECT food_id, coalesce(display_name, description) AS name, prep_type,
-       kcal_100g, protein_100g, fat_100g, carb_100g
-  FROM foods WHERE merged_food_id = ? ORDER BY food_id;
+SELECT food_id, prep_type, kcal_100g, protein_100g, fat_100g, carb_100g,
+       serving_g, serving_label
+  FROM foods WHERE merged_food_id = ? AND food_id = prep_id ORDER BY food_id;
 ```
 
-⚠️ **`merged_foods.variable_fat` and `foods.variable_fat` are different flags sharing a name.**
-On `foods` it is the per-food "sold at several fat levels" hint (448 foods); here it means the
-group really was built across fat levels (10 groups). Always qualify the column.
+Two foods are the same item when their descriptions share ingredient tokens **and** their
+protein:carb:fat ratio agrees; within an item, preparations split on **absolute** macros, because
+cooking drives water off. So raw thigh (19.7 g protein) and cooked thigh (24.8 g) are two
+preparations of one item, while grilled, boiled and baked are one preparation called `cooked`.
+Reasoning and the measured thresholds are in `generate-sqlite/README.md`.
 
 ⚠️ **Log a `foods.food_id`, never a `merged_food_id` as though it were a food.** They are the
-same integer, but a group id logs its *canonical* preparation — right until the user picks
+same integer, but an item id logs its *default* preparation — right until the user picks
 another one from the list above.
 
 ## `food_nutrition` — 13,692 rows, wide, PK `food_id`
@@ -136,57 +146,89 @@ SELECT pair_food_id, score FROM food_pairs WHERE food_id = ? ORDER BY score DESC
 or `foundation_food` (198) — never FNDDS, because pairs come from FNDDS recipes whose ingredient
 codes resolve to SR Legacy foods. Design "what goes with this" to degrade gracefully to nothing.
 
-## `food_fts` / `food_fts_trgm` — FTS5, contentless, `rowid = food_id`
+## `food_fts` / `food_fts_trgm` — FTS5, contentless, `rowid = merged_food_id`
 
-`food_fts(name, description, aka)` with `prefix='2 3'`, `unicode61 remove_diacritics 2`.
-`aka` holds USDA synonyms plus generated keywords — this is why "hot dog" finds *Frankfurter*.
+**One row per item, not per food** — 8,335 rows, and `rowid` is the `merged_food_id`. So a
+search returns "chicken thigh" once instead of 56 times with no collapsing to do.
 
-**Every variant is indexed, so search *can* collapse to one row per `merged_foods` item** — typing
-`poached` finds the egg group and shows it as *Whole raw egg*. Only the result set collapses.
+`food_fts(name, prep, aka, members)` with `prefix='2 3'`,
+`unicode61 remove_diacritics 2`:
 
-⚠️ **The app does not do this yet.** It ships the flat, composite-ranked query in
-[Queries by screen](#queries-by-screen); the collapsed form below is the target, and
-[`MIGRATION_MERGED_FOODS.md`](MIGRATION_MERGED_FOODS.md) is the sequence. Both run against this
-file — the schema is additive.
+| column | holds |
+| --- | --- |
+| `name` | the item's `display_name` (its default member's `description` until Stage 4 runs) |
+| `prep` | the item's preparation labels, so `poached` finds the egg |
+| `aka` | USDA Common Name / Additional Description synonyms + LLM keywords — this is why "hot dog" finds *Frankfurter* |
+| `members` | the **deduplicated token set** of every member description |
 
-**Primary search** (pass a prefix expression like `chick* brea*`) — 1–9 ms over all 13,694:
+⚠️ **`members` is a token set, not the descriptions concatenated.** bm25 normalizes by document
+length, so concatenating an 18-member group's descriptions would bury it under a single-member
+item. Measured over the corpus: 644k chars concatenated against **350k** deduplicated, up to 15×
+on the worst groups (1,536 → 105 chars). Safe only because the app builds implicit-AND prefix
+queries (`"chicken"* "brea"*`) and never `NEAR()` or a phrase query — the forms that need word
+order. Losing term frequency is a bonus: a group saying "chicken" 18 times should not outrank one
+saying it once.
+
+`food_fts_trgm(txt)` indexes what the user *sees* — name + preparation labels + synonyms. Member
+descriptions and keywords stay out, where they would only add wrong-food noise to a fuzzy match.
+
+**The one query** — pass a prefix expression like `chick* brea*`. Measured 0.4–3 ms:
 
 ```sql
-SELECT c.food_id, coalesce(c.display_name, c.description) AS name, c.emoji,
+SELECT s.rowid AS food_id, coalesce(m.display_name, c.description) AS name, m.emoji,
        c.kcal_100g, c.protein_100g, c.fat_100g, c.carb_100g,
-       m.n_foods, m.variable_fat, min(s.rank) AS rank
-  FROM (SELECT rowid, rank FROM food_fts
-         WHERE food_fts MATCH ? AND rank MATCH 'bm25(10.0, 3.0, 1.0)') s
-  JOIN foods v        ON v.food_id = s.rowid
-  JOIN merged_foods m ON m.merged_food_id = v.merged_food_id
-  JOIN foods c        ON c.food_id = m.merged_food_id
- GROUP BY m.merged_food_id
- ORDER BY rank
- LIMIT ?;
+       c.serving_g, c.serving_label, m.n_foods, m.n_preps
+  FROM food_fts s
+  JOIN merged_foods m ON m.merged_food_id = s.rowid
+  JOIN foods c        ON c.food_id        = s.rowid
+  LEFT JOIN (SELECT cf.merged_food_id AS mid, count(*) AS n
+               FROM log_entries l JOIN foods cf ON cf.food_id = l.food_id
+              WHERE l.deleted = 0 AND l.food_id IS NOT NULL AND l.local_date >= ?1
+              GROUP BY cf.merged_food_id) r ON r.mid = s.rowid
+ WHERE food_fts MATCH ?2
+ ORDER BY bm25(food_fts, 10.0, 2.0, 3.0, 1.0) * (1
+     + 1.0 * coalesce(m.commonness, 0.4)                -- likely in an ordinary kitchen
+     + 0.3 * (m.prep_type IS 'cooked')                  -- you log cooked pasta, not dry
+     + 1.5 * min(coalesce(r.n, 0), 3) / 3.0             -- logged lately, saturating
+     + 0.6 * (lower(coalesce(m.display_name, c.description)) = lower(?3))
+     - 0.3 * (<name||description> LIKE '%restaurant%'   -- institutional / infant variants
+           OR <…> LIKE '%school lunch%' OR <…> LIKE '%baby food%'))
+ LIMIT ?4;
 ```
 
-`food_id` is the group's canonical variant, so a row is loggable as it stands; `n_foods > 1`
-is the cue to offer the picker first.
+`food_id` is the item's default preparation, so a row is loggable as it stands; `n_preps > 1`
+is the cue to offer the picker. Weights are per column: name 10, prep 2, aka 3, members 1.
 
-⚠️ **The weights go in `rank MATCH 'bm25(…)'`, not a `bm25()` call.** An FTS5 auxiliary
-function is only legal in a query whose FROM is the FTS table itself; the moment the match is
-joined to `foods`, `bm25()` fails with *unable to use function bm25 in the requested context* —
-in a subquery and a plain CTE alike. Reading the hidden `rank` column scores inside the
-subquery and hands out an ordinary number. Lower is better, so `min()` is the best variant.
+⚠️ **`bm25()` is legal here because nothing aggregates.** An FTS5 auxiliary function may not be
+used in an **aggregating** query — joining is fine, which is why the old flat query worked, but a
+`GROUP BY` raises *unable to use function bm25 in the requested context* at runtime. Collapsing
+per-food hits needed exactly that `GROUP BY`, which is why the composite score and the collapsed
+result set were mutually exclusive before `rowid` became `merged_food_id`. (Older revisions of
+this file said a *join* breaks `bm25()`. That was wrong.)
 
-**Typo fallback** — run only when the primary returns too few rows, against `food_fts_trgm`:
+⚠️ **Three ways to break the ranking**, all found the hard way:
 
-```sql
-SELECT c.food_id, coalesce(c.display_name, c.description) AS name, c.emoji, c.kcal_100g,
-       m.n_foods, min(s.rank) AS rank
-  FROM (SELECT rowid, rank FROM food_fts_trgm WHERE food_fts_trgm MATCH ?) s
-  JOIN foods v        ON v.food_id = s.rowid
-  JOIN merged_foods m ON m.merged_food_id = v.merged_food_id
-  JOIN foods c        ON c.food_id = m.merged_food_id
- GROUP BY m.merged_food_id ORDER BY rank LIMIT ?;
-```
+1. **bm25 is negative.** A bigger multiplier is a *smaller* number, so `ORDER BY score` stays
+   ascending, best first. The multiplier floor is `1 + 1.0*0.05 - 0.3 = 0.75` — it never reaches
+   zero, which would flip the sign.
+2. **`prep_type IS 'cooked'`, never `= 'cooked'`.** It is NULL on about half of all items; `=`
+   yields NULL there, NULL poisons the whole product, and NULL sorts *first*.
+3. **Sort before the `LIMIT`.** "Cooked pasta" sits at bm25 ranks 26 and 41–45 of 182, so
+   re-ranking an already-limited pool in Dart would never see it.
 
-One column, so the default weights already are `bm25()` and there is nothing to configure.
+Multiplicative, not additive, because the bm25 spread is query-dependent — `chicken` spans 0.37,
+`chicken brea` spans 2.35. Scaling by bm25 magnitude keeps one set of weights honest across both.
+
+The recency term joins **through** `merged_food_id`, so logging a boiled egg boosts the egg item
+however the user later spells the search. The per-food query could not express that.
+
+Numbered placeholders, not bare `?`: bare ones bind in order of appearance in the SQL text
+(since / match / term / limit), which is not the order any sane caller passes them.
+
+**Typo fallback** — the same query against `food_fts_trgm` with `bm25(food_fts_trgm)` (one
+column, so nothing to weight). Run it only when the primary returns too few rows, and **append**
+its hits rather than merging: the two indexes produce non-comparable bm25 magnitudes, so a
+trigram hit belongs after every exact one regardless of score.
 
 ⚠️ `MATCH 'chikcen'` against a trigram index finds **nothing** — one transposition breaks every
 trigram spanning it. You must split the query into 3-char grams and OR them:
@@ -347,81 +389,22 @@ For week/month buckets, group on `strftime('%Y-%W', local_date)` / `substr(local
 
 ⚠️ **Do not rank by bare `bm25`.** For a one-word query it barely discriminates: all 182 `pasta`
 matches score between −8.95 and −8.78, so the winner is document-length noise ("Spinach pasta"
-beat "Cooked pasta"). Rank by a composite score instead — this is what the app ships
-(`catalog_repository.dart`):
+beat "Cooked pasta"). Rank by the composite score in
+[`food_fts`](#food_fts--food_fts_trgm--fts5-contentless-rowid--merged_food_id) — that query is
+what the app ships (`catalog_repository.dart`), it already returns one row per item, and its
+three failure modes are documented there.
+
+Custom foods are merged in Dart, not in SQL: the catalog query is run, then the custom-food hits
+are **prepended**. A `UNION ALL` in SQL would work too, and would look like this — a custom food
+is always `n_preps = 1`, so both halves are one row per item the user recognizes:
 
 ```sql
-SELECT f.food_id, coalesce(f.display_name, f.description) AS name, f.emoji,
-       f.kcal_100g, f.protein_100g, f.fat_100g, f.carb_100g, f.serving_g, f.serving_label
-  FROM food_fts s
-  JOIN foods f ON f.food_id = s.rowid
-  LEFT JOIN (SELECT food_id, count(*) AS n FROM log_entries
-              WHERE deleted = 0 AND food_id IS NOT NULL AND local_date >= ?1
-              GROUP BY food_id) r ON r.food_id = f.food_id
- WHERE food_fts MATCH ?2
- ORDER BY bm25(food_fts, 10.0, 3.0, 1.0) * (1
-     + 1.0 * coalesce(f.commonness, 0.4)                -- likely in an ordinary kitchen
-     + 0.3 * (f.prep_type IS 'cooked')                  -- you log cooked pasta, not dry
-     + 1.5 * min(coalesce(r.n, 0), 3) / 3.0             -- logged lately, saturating
-     + 0.6 * (lower(coalesce(f.display_name, f.description)) = lower(?3))
-     - 0.3 * (<name||description> LIKE '%restaurant%'   -- institutional / infant variants
-           OR <…> LIKE '%school lunch%' OR <…> LIKE '%baby food%'))
- LIMIT ?4;
+SELECT NULL AS food_id, id AS custom_food_id, name, emoji, energy_kcal, protein_g,
+       serving_g, serving_label, 1 AS n_preps, 1 AS is_custom
+  FROM custom_foods
+ WHERE deleted = 0 AND (name || ' ' || coalesce(brand, '')) LIKE '%' || ?1 || '%'
+ LIMIT 20;
 ```
-
-Three ways to break this expression:
-
-1. **bm25 is negative.** A bigger multiplier is a *smaller* number, so `ORDER BY score` stays
-   ascending, best-first. The multiplier floor is `1 + 1.0*0.05 − 0.3 = 0.75`, so it can never reach
-   zero and flip the ordering — keep it that way if you retune the weights.
-2. **`prep_type IS 'cooked'`, never `= 'cooked'`.** `prep_type` is 52% NULL; `=` yields NULL there,
-   NULL poisons the whole product, and NULL sorts **first**. Same care for any new column term.
-3. **Sort before the `LIMIT`.** "Cooked pasta" sits at bm25 ranks 26 and 41–45 of 182, so re-ranking
-   an already-limited result set in Dart cannot see it. That is why the score lives in SQL.
-
-Multiplicative, not additive, because the bm25 spread is query-dependent — `chicken` spans 0.37,
-`chicken brea` spans 2.35. Scaling by bm25 magnitude keeps one set of weights honest across both.
-
-The trigram fallback uses the same expression with `bm25(food_fts_trgm)`, but its hits are
-**appended after** the exact ones rather than merged: the two indexes produce non-comparable bm25
-magnitudes, and a fuzzy hit is always the lower-confidence answer.
-
-### Collapsing to merged items — shipped in the file, not yet in the app
-
-The query above returns one row per USDA food, so "egg" still meets four of them. Grouping on
-`merged_foods` fixes that and **keeps the composite score** — the two are compatible, but only in
-this shape:
-
-```sql
-SELECT * FROM (
-  SELECT c.food_id, NULL AS custom_food_id, coalesce(c.display_name, c.description) AS name,
-         c.emoji, c.kcal_100g, c.protein_100g, c.serving_g, c.serving_label,
-         m.n_foods, 0 AS is_custom
-    FROM (SELECT rowid, rank FROM food_fts
-           WHERE food_fts MATCH ?1 AND rank MATCH 'bm25(10.0, 3.0, 1.0)') s
-    JOIN foods v        ON v.food_id = s.rowid
-    JOIN merged_foods m ON m.merged_food_id = v.merged_food_id
-    JOIN foods c        ON c.food_id = m.merged_food_id
-   GROUP BY m.merged_food_id
-   ORDER BY min(s.rank * (1 + 1.0 * coalesce(v.commonness, 0.4) + …))  -- same weights as above
-   LIMIT ?2)
-UNION ALL SELECT * FROM (
-  SELECT NULL, id, name, emoji, energy_kcal, protein_g, serving_g, serving_label, 1, 1
-    FROM custom_foods
-   WHERE deleted = 0 AND (name || ' ' || coalesce(brand, '')) LIKE '%' || ?3 || '%' LIMIT 20)
-ORDER BY is_custom DESC;
-```
-
-⚠️ **The weights move into `rank MATCH 'bm25(…)'`; a `bm25()` call cannot survive the join.** An
-FTS5 auxiliary function is only legal in a query whose `FROM` is the FTS table itself, so the
-moment you join to `foods` **and** group, `bm25()` fails with *unable to use function bm25 in the
-requested context* — in a subquery and a plain CTE alike. The hidden `rank` column is an ordinary
-number, so the composite multiplier applies to `s.rank` in the outer query exactly as it applied to
-`bm25(...)` before. Lower is better, so `min()` picks the group's best variant.
-
-Both halves are then one row per item the user recognizes — a custom food is always `n_foods = 1`,
-so the result set has one granularity and the list renders from one branch. See
-[`MIGRATION_MERGED_FOODS.md`](MIGRATION_MERGED_FOODS.md) for the full sequence.
 
 Custom foods have **no FTS index** and need none — a `LIKE` scan over 500 of them measures 0.111 ms.
 With no bm25 to rank by they order on `count(*) DESC, max(logged_at) DESC` over the same window.
@@ -500,10 +483,16 @@ the edit would never sync. **A recipe save must end with**
 11. A custom food referenced by history cannot be hard-deleted — the FK blocks it. Soft-delete it.
 12. `updated_at` is unix **seconds**, not milliseconds.
 13. Search ranks on a composite score, not bare `bm25` — which is **negative**, so a larger
-    multiplier sorts earlier. Sort before the `LIMIT`, and compare `prep_type` with `IS` (it is 52%
-    NULL, and a NULL term poisons the product and sorts first).
-14. Once search collapses on `merged_foods`, a search row is a **merged item**: its `food_id` is the
-    group's canonical preparation, not necessarily the one the user means. Offer the variant picker
-    when `n_foods > 1`. Not adopted yet — see `MIGRATION_MERGED_FOODS.md`.
-15. FTS5 weights go in `rank MATCH 'bm25(…)'` — a `bm25()` call cannot survive a join **and** a
-    `GROUP BY`. The flat query keeps `bm25()` only because the FTS table is its own `FROM`.
+    multiplier sorts earlier. Sort before the `LIMIT`, and compare `prep_type` with `IS` (it is
+    NULL on about half of all items, and a NULL term poisons the product and sorts first).
+14. A search row is a **merged item**: `food_id` is its *default* preparation, not necessarily the
+    one the user means. Offer the variant picker when `n_preps > 1`
+    (`WHERE merged_food_id = ? AND food_id = prep_id`).
+15. `food_fts.rowid` is `merged_food_id`, **not** `food_id`. Joining it to `foods` still works —
+    an item id is a real food id — but it resolves to the default preparation, not to whichever
+    member matched.
+16. `bm25()` is illegal in an **aggregating** query, not in a joined one. Any `GROUP BY` over an
+    FTS match raises *unable to use function bm25 in the requested context*; that is why search
+    indexes items directly instead of collapsing foods.
+17. `merged_foods.display_name` is **nullable** — it is NULL until the enrichment stage has run
+    for that item. Always `coalesce(m.display_name, c.description)`.

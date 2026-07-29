@@ -1,5 +1,12 @@
 # Migrating the app to merged foods
 
+> **SUPERSEDED — history only.** This describes the first grouping attempt (macro-ratio dedup at
+> `MERGE_DISTANCE = 0.05`, run *after* enrichment). It shipped in the catalog but its app-side
+> steps were never taken, and the approach was measured to be wrong: the ratio is not invariant
+> to rendering, so raw and cooked meat could never group and the catalog carried 56 separate
+> "chicken thigh" items. See [`MIGRATION_MERGED_ITEMS.md`](MIGRATION_MERGED_ITEMS.md) for the
+> current shape and the live migration.
+
 The catalog now ships Stage 6b's grouping: **13,694 USDA foods in 10,000 merged items.** A user
 searching for "egg" met four rows and ground beef was nine rows at nine fat levels; now each is
 one result with its preparations behind it.

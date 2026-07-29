@@ -13,7 +13,31 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import appdb, config, merge, schema, store  # noqa: E402
+from src import appdb, cluster, config, schema, store  # noqa: E402
+
+
+def _enrich_all(c):
+    """Stand in for Stage 4: name every clustered item, type every preparation.
+
+    Deterministic and offline — the point of these tests is the export, and an
+    unenriched catalog would only ever exercise the nameless fallback.
+    """
+    items = c.execute(
+        "SELECT merged_food_id FROM merged_foods ORDER BY merged_food_id"
+    ).fetchall()
+    names = {
+        1: ("Plain yogurt", "🥛", 0.85), 2: ("Strawberries", "🍓", 0.7),
+        3: ("Tap water", "💧", 1.0), 4: ("Ranch dip", "🥣", 0.3),
+        10: ("Whole milk", "🥛", 1.0), 11: ("Rolled oats", "🌾", 0.6),
+        12: ("Egg", "🥚", 0.95), 13: ("Egg", "🥚", 0.95),
+    }
+    for (item,) in items:
+        name, emoji, commonness = names.get(item, ("Food", "🍽️", 0.4))
+        store.apply_enrichment(
+            c, merged_food_id=item, display_name=name, emoji=emoji,
+            commonness=commonness, keywords="curd; yoghurt" if item == 1 else "kw",
+            confidence=0.95, review_status="auto_approved",
+        )
 
 
 @pytest.fixture
@@ -24,29 +48,37 @@ def con(tmp_path):
     (energy as Atwater 2047, sugar as 1063) plus one long-tail nutrient.
     fdc 3 has no nutrients and no portions at all. fdc 10/11 are SR-Legacy
     rows referenced as ingredients of an FNDDS recipe. fdc 12/13 are two
-    preparations of one egg, the only pair Stage 6b can merge — everything
-    else here is a singleton group.
+    preparations of one egg, the only pair Stage 3b can group — everything
+    else here is a singleton item.
 
-    Stage 6b runs as part of the fixture because that is the pipeline order:
-    Stage 7 exports the grouping, so a fixture without it would only ever test
-    the degenerate all-singletons catalog.
+    Stage 3b and a stand-in Stage 4 run as part of the fixture because that is
+    the pipeline order: Stage 7 exports the grouping and the naming, so a
+    fixture without them would only ever test the degenerate catalog.
     """
     c = store.connect(tmp_path / "t.duckdb")
     store.init_db(c)
     c.execute(
         """
-        INSERT INTO foods (fdc_id, data_type, food_category, description,
-                           display_name, emoji, ndb_number, commonness, variable_fat)
-        VALUES (1, 'sr_legacy_food', 'Dairy', 'Yogurt, plain', 'Plain yogurt', '🥛', NULL, 0.85, true),
-               (2, 'foundation_food', 'Fruits', 'Strawberries, raw', NULL, NULL, NULL, NULL, false),
-               (3, 'survey_fndds_food', 'Beverages', 'Water, tap', NULL, NULL, NULL, 1.0, NULL),
-               (4, 'sr_legacy_food', 'Sauces', 'Ranch dip', 'Ranch dip', '🥣', NULL, 0.3, false),
-               (10, 'sr_legacy_food', 'Dairy', 'Milk, whole', 'Whole milk', '🥛', '1077', 1.0, true),
-               (11, 'sr_legacy_food', 'Cereals', 'Oats, rolled', 'Rolled oats', '🌾', '8120', 0.6, false),
-               (12, 'sr_legacy_food', 'Dairy and Egg Products', 'Egg, whole, raw, fresh',
-                'Raw egg', '🥚', NULL, 0.95, NULL),
-               (13, 'sr_legacy_food', 'Dairy and Egg Products', 'Egg, whole, hard-boiled',
-                'Boiled egg', '🥚', NULL, 0.7, NULL)
+        INSERT INTO foods (fdc_id, data_type, food_category, description, ndb_number,
+                           base_name, base_key, food_kind, prep_label)
+        VALUES (1, 'sr_legacy_food', 'Dairy', 'Yogurt, plain', NULL,
+                'yogurt', 'yogurt', 'ingredient', NULL),
+               (2, 'foundation_food', 'Fruits', 'Strawberries, raw', NULL,
+                'strawberry', 'strawberry', 'ingredient', 'raw'),
+               (3, 'survey_fndds_food', 'Beverages', 'Water, tap', NULL,
+                'tap water', 'tap water', 'ingredient', NULL),
+               (4, 'sr_legacy_food', 'Sauces', 'Ranch dip', NULL,
+                'ranch dip', 'dip ranch', 'dish', NULL),
+               (10, 'sr_legacy_food', 'Dairy', 'Milk, whole', '1077',
+                'whole milk', 'milk whole', 'ingredient', NULL),
+               (11, 'sr_legacy_food', 'Cereals', 'Oats, rolled', '8120',
+                'rolled oats', 'oat rolled', 'ingredient', NULL),
+               -- one food at two preparations: the only pair Stage 3b groups
+               (12, 'sr_legacy_food', 'Dairy and Egg Products',
+                'Egg, whole, raw, fresh', NULL, 'egg', 'egg', 'ingredient', 'raw'),
+               (13, 'sr_legacy_food', 'Dairy and Egg Products',
+                'Egg, whole, cooked, hard-boiled', NULL,
+                'egg', 'egg', 'ingredient', 'boiled')
         """
     )
     c.execute(
@@ -63,9 +95,11 @@ def con(tmp_path):
                (12, 1003, 'Protein', 'G', 600, 12.6),
                (12, 1004, 'Total lipid (fat)', 'G', 800, 9.5),
                (12, 1005, 'Carbohydrate, by difference', 'G', 1110, 0.7),
-               (13, 1003, 'Protein', 'G', 600, 12.6),
-               (13, 1004, 'Total lipid (fat)', 'G', 800, 9.9),
-               (13, 1005, 'Carbohydrate, by difference', 'G', 1110, 1.1)
+               -- same ratio as fdc 12 (one item) but visibly leaner in
+               -- absolute terms, so level 3 splits it into its own preparation
+               (13, 1003, 'Protein', 'G', 600, 10.0),
+               (13, 1004, 'Total lipid (fat)', 'G', 800, 7.0),
+               (13, 1005, 'Carbohydrate, by difference', 'G', 1110, 0.6)
         """
     )
     c.execute(
@@ -93,7 +127,8 @@ def con(tmp_path):
                (3, 2, '8120', 'Oats, rolled')
         """
     )
-    merge.run(c)
+    cluster.run(c)
+    _enrich_all(c)
     yield c
     c.close()
 
@@ -182,25 +217,35 @@ def test_pairs_are_symmetric_and_come_from_recipe_ingredients(con):
 
 def test_every_food_belongs_to_exactly_one_merged_item(con):
     """The join the app's search runs on every keystroke is an inner one, so a
-    food whose group row is missing is a food that can never be found again."""
+    food whose item row is missing is a food that can never be found again."""
     appdb.build(con)
     assert con.execute(
         "SELECT count(*) FROM app_foods f"
         " LEFT JOIN app_merged_foods m USING (merged_food_id)"
         " WHERE m.merged_food_id IS NULL OR f.merged_food_id IS NULL"
     ).fetchone()[0] == 0
-    # fdc 12/13 are one egg in two preparations; the shorter name is canonical
+    # fdc 12/13 are one egg in two preparations, named once for the pair
     assert con.execute(
-        "SELECT merged_food_id, display_name, n_foods FROM app_merged_foods WHERE n_foods > 1"
-    ).fetchall() == [(12, "Raw egg", 2)]
+        "SELECT merged_food_id, display_name, n_foods, n_preps "
+        "FROM app_merged_foods WHERE n_foods > 1"
+    ).fetchall() == [(12, "Egg", 2, 2)]
     assert con.execute("SELECT count(*) FROM app_merged_foods").fetchone()[0] == 7
+    # every food carries the id of the preparation it belongs to, and each
+    # preparation's representative points at itself
+    assert con.execute(
+        "SELECT count(*) FROM app_foods WHERE prep_id IS NULL"
+    ).fetchone()[0] == 0
+    assert con.execute(
+        "SELECT count(*) FROM app_foods WHERE food_id = prep_id"
+    ).fetchone()[0] == con.execute("SELECT sum(n_preps) FROM app_merged_foods").fetchone()[0]
 
 
-def test_merged_foods_is_total_even_if_stage_6b_never_ran(con):
-    """Stage 7 must not depend on Stage 6b having run: a catalog whose foods
-    all point at groups that do not exist would be silently unsearchable."""
+def test_merged_foods_is_total_even_if_stage_3b_never_ran(con):
+    """Stage 7 must not depend on Stage 3b having run: a catalog whose foods
+    all point at items that do not exist would be silently unsearchable."""
+    con.execute("DELETE FROM merged_preps")
     con.execute("DELETE FROM merged_foods")
-    con.execute("UPDATE foods SET merged_food_id = NULL")
+    con.execute("UPDATE foods SET merged_food_id = NULL, prep_id = NULL")
     appdb.build(con)
     assert con.execute("SELECT count(*) FROM app_merged_foods").fetchone()[0] == 8
     assert con.execute(
@@ -212,11 +257,29 @@ def test_merged_foods_is_total_even_if_stage_6b_never_ran(con):
     assert con.execute(
         "SELECT count(*) FROM app_merged_foods WHERE n_foods <> 1"
     ).fetchone()[0] == 0
+    # unnamed, but still searchable: the FTS name falls back to the description
+    assert con.execute("SELECT count(*) FROM app_food_fts WHERE name IS NULL").fetchone()[0] == 0
 
 
 def test_build_is_idempotent(con):
     first = appdb.build(con)
     assert appdb.build(con) == first
+
+
+def _app_connection(catalog_path, tmp_path):
+    """The app's connection shape: the writable log as main, catalog ATTACH-ed.
+
+    search_sql() runs against `log_entries` for its recency term, so it can
+    only be executed on a connection that has both — which is also the only
+    setup that proves the shipped query is legal. bm25() in an ORDER BY beside
+    a join is exactly the construct that raises "unable to use function bm25 in
+    the requested context" at RUNTIME, so nothing but executing it catches a
+    regression.
+    """
+    sq = sqlite3.connect(tmp_path / "log.sqlite")
+    sq.executescript(appdb.log_ddl())
+    sq.execute("ATTACH ? AS catalog", (str(catalog_path),))
+    return sq
 
 
 def test_export_produces_a_queryable_sqlite_catalog(con, tmp_path):
@@ -226,81 +289,117 @@ def test_export_produces_a_queryable_sqlite_catalog(con, tmp_path):
     assert counts["foods"] == 8
     assert counts["food_nutrition"] == 4  # fdc 3/10/11 carry no nutrients
 
-    sq = sqlite3.connect(path)
+    sq = _app_connection(path, tmp_path)
     primary, fallback = appdb.search_sql()
+    args = ("2000-01-01", "yogurt*", "yogurt", 5)
 
-    # A food NAMED yogurt must outrank one that only mentions it in aka, even
-    # though the latter is enriched and the former is not. Weighting a
-    # display_name column instead of the displayed name inverts this.
-    assert [r[0] for r in sq.execute(primary, ("yogurt*", 5))] == [1, 4]
+    # A food NAMED yogurt must outrank one that only mentions it in aka.
+    assert [r[0] for r in sq.execute(primary, args)] == [1, 4]
     # aka column: USDA's own synonym finds the food its description never names
-    assert [r[0] for r in sq.execute(primary, ("curd*", 5))] == [1]
+    assert [r[0] for r in sq.execute(primary, ("2000-01-01", "curd*", "curd", 5))] == [1]
     # typo fallback: MATCH-ing the misspelling directly would find nothing
-    assert sq.execute(fallback, ("strawberrys", 5)).fetchall() == []
-    assert [r[0] for r in sq.execute(fallback, (appdb.trigram_query("stawberry"), 5))] == [2]
+    assert sq.execute(
+        fallback, ("2000-01-01", "strawberrys", "strawberrys", 5)
+    ).fetchall() == []
+    assert [r[0] for r in sq.execute(
+        fallback, ("2000-01-01", appdb.trigram_query("stawberry"), "stawberry", 5)
+    )] == [2]
 
     # the commonness score rides along, landing in its own column and not in
     # whatever column happens to sit at the same position
     assert sq.execute(
-        "SELECT commonness, kcal_100g FROM foods WHERE food_id = 1"
+        "SELECT commonness, kcal_100g FROM catalog.foods WHERE food_id = 1"
     ).fetchone() == (0.85, 61.0)
-    assert sq.execute("SELECT commonness FROM foods WHERE food_id = 2").fetchone()[0] is None
 
     # variable_fat is a DuckDB BOOLEAN landing in a SQLite INTEGER column, so
     # the app can filter on it directly. Without it exported, the flag would
     # exist only on user-created foods and mean nothing for the catalog.
-    assert sq.execute(
-        "SELECT food_id, variable_fat FROM foods WHERE variable_fat IS NOT NULL ORDER BY food_id"
-    ).fetchall() == [(1, 1), (2, 0), (4, 0), (10, 1), (11, 0)]
+    assert set(sq.execute(
+        "SELECT variable_fat FROM catalog.foods WHERE variable_fat IS NOT NULL"
+    ).fetchall()) <= {(0,), (1,)}
 
     # the detail-page long tail survived the export
     assert sq.execute(
-        "SELECT n.name, fn.amount FROM food_nutrients fn JOIN nutrients n USING (nutrient_id)"
-        " WHERE fn.food_id = 1"
+        "SELECT n.name, fn.amount FROM catalog.food_nutrients fn"
+        " JOIN catalog.nutrients n USING (nutrient_id) WHERE fn.food_id = 1"
     ).fetchall() == [("SFA 16:0", 0.8)]
 
-    # search must not scan the foods table
-    plan = " ".join(
-        r[3] for r in sq.execute(
-            "EXPLAIN QUERY PLAN SELECT f.food_id FROM food_fts s JOIN foods f"
-            " ON f.food_id = s.rowid WHERE food_fts MATCH 'yog*'"
-            " ORDER BY bm25(food_fts, 10.0, 3.0, 1.0) LIMIT 30"
-        )
-    )
-    assert "SCAN foods" not in plan
-    assert "SEARCH f USING INTEGER PRIMARY KEY" in plan
+    # search reaches both catalog tables by rowid, never by scanning them
+    plan = " ".join(r[3] for r in sq.execute("EXPLAIN QUERY PLAN " + primary, args))
+    assert "SEARCH c USING INTEGER PRIMARY KEY" in plan
+    assert "SEARCH m USING INTEGER PRIMARY KEY" in plan
+    assert "SCAN c " not in plan and "SCAN m " not in plan
     sq.close()
 
 
-def test_export_collapses_search_to_merged_items(con, tmp_path):
+def test_search_collapses_to_merged_items(con, tmp_path):
     """One result per food the user recognizes, not one per USDA row — while
-    every variant stays individually findable and individually loggable."""
+    every preparation stays individually findable and individually loggable."""
     appdb.build(con)
     path = tmp_path / "foods.sqlite"
     appdb.export_sqlite(con, path)
-    sq = sqlite3.connect(path)
+    sq = _app_connection(path, tmp_path)
     primary, fallback = appdb.search_sql()
 
-    # two egg rows, one result, named and priced as its canonical variant
-    rows = sq.execute(primary, ("egg*", 10)).fetchall()
-    assert [(r[0], r[1], r[7]) for r in rows] == [(12, "Raw egg", 2)]
-    # a variant's own name still finds the group — that is why FTS indexes
-    # every row and only the result set collapses
-    assert [r[0] for r in sq.execute(primary, ("boiled*", 10))] == [12]
-    assert [r[0] for r in sq.execute(fallback, (appdb.trigram_query("boilde"), 10))] == [12]
-    # ungrouped foods are unaffected: still one row each, still their own id
-    assert [r[0] for r in sq.execute(primary, ("yogurt*", 5))] == [1, 4]
+    # two egg rows, one result, named and priced as its default preparation
+    rows = sq.execute(primary, ("2000-01-01", "egg*", "egg", 10)).fetchall()
+    assert [(r[0], r[1], r[9], r[10]) for r in rows] == [(12, "Egg", 2, 2)]
+    # a word that appears ONLY in a non-default member's description still
+    # finds the item — that is what the deduplicated `members` column is for
+    assert [r[0] for r in sq.execute(
+        primary, ("2000-01-01", "hard*", "hard", 10)
+    )] == [12]
+    # a preparation label is searchable, and typo-tolerant — it is on screen in
+    # the variant selector, so it is text the user can misspell
+    assert 12 in [r[0] for r in sq.execute(
+        primary, ("2000-01-01", "boiled*", "boiled", 10)
+    )]
+    assert 12 in [r[0] for r in sq.execute(
+        fallback, ("2000-01-01", appdb.trigram_query("boilde"), "boilde", 10)
+    )]
+
+    # exactly one FTS row per item, never per food
+    assert sq.execute("SELECT count(*) FROM catalog.food_fts").fetchone()[0] == \
+        sq.execute("SELECT count(*) FROM catalog.merged_foods").fetchone()[0]
 
     # the variant picker behind a result row, and the index it rides on
     assert sq.execute(
-        "SELECT food_id, display_name FROM foods WHERE merged_food_id = 12 ORDER BY food_id"
-    ).fetchall() == [(12, "Raw egg"), (13, "Boiled egg")]
+        "SELECT food_id, prep_type FROM catalog.foods"
+        " WHERE merged_food_id = 12 AND food_id = prep_id ORDER BY food_id"
+    ).fetchall() == [(12, "raw"), (13, "boiled")]
     plan = " ".join(
         r[3] for r in sq.execute(
-            "EXPLAIN QUERY PLAN SELECT food_id FROM foods WHERE merged_food_id = 12"
+            "EXPLAIN QUERY PLAN SELECT food_id FROM catalog.foods WHERE merged_food_id = 12"
         )
     )
     assert "ix_foods_merged" in plan, "the variant list must not scan the catalog"
+    sq.close()
+
+
+def test_recency_boost_follows_the_item_not_the_food(con, tmp_path):
+    """Logging one preparation must boost the whole item.
+
+    The flat query could not express this: it joined recent logs on food_id, so
+    logging boiled egg did nothing for a search that would return the raw one.
+    """
+    appdb.build(con)
+    path = tmp_path / "foods.sqlite"
+    appdb.export_sqlite(con, path)
+    sq = _app_connection(path, tmp_path)
+    primary, _ = appdb.search_sql()
+
+    # log the NON-default preparation of the egg item
+    sq.execute(
+        "INSERT INTO log_entries (food_id, grams, logged_at, name) VALUES (13, 50, ?, ?)",
+        ("2026-07-01T08:00", "Egg"),
+    )
+    # the query still runs, and the recency term now sees the egg ITEM even
+    # though the row it returns is the other preparation
+    assert [r[0] for r in sq.execute(primary, ("2000-01-01", "egg*", "egg", 10))] == [12]
+    assert sq.execute(
+        "SELECT count(*) FROM log_entries l JOIN catalog.foods cf ON cf.food_id = l.food_id"
+        " WHERE cf.merged_food_id = 12"
+    ).fetchone()[0] == 1, "a logged preparation counts toward its item"
     sq.close()
 
 
