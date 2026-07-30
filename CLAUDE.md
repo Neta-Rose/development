@@ -16,7 +16,10 @@ is a build artifact of the pipeline, not a file anyone should be copying by hand
 `server/` is a small Go service, the **one** network dependency the app has: it proxies plate photos
 to a vision model through OpenRouter and returns the foods on the plate. It has its own `README.md`.
 It exists so the OpenRouter key stays off the device and so the model id is a deployment knob rather
-than a client release.
+than a client release. It deploys to AWS Lambda behind a function URL — `infra/terraform/` and
+**`docs/DEPLOY.md`**, which is the reference for both pipelines. Nothing in `server/` knows it runs
+on Lambda: AWS Lambda Web Adapter bridges the Runtime API to the plain `net/http` server, so `go run .`
+and any container host still work unchanged.
 
 ## Commands
 
@@ -29,14 +32,24 @@ flutter test
 flutter test test/catalog_test.dart --plain-name 'recipe roll-up'           # one test
 dart run build_runner build --delete-conflicting-outputs                   # or `watch`
 flutter build web && vercel deploy --prebuilt                               # dev-testing build
-shorebird patch android                                                     # code push
+shorebird patch android                                                     # code push, by hand
 
 cd server && go test ./... && go vet ./...   # plate detector, offline, no key needed
 cd server && OPENROUTER_API_KEY=… go run .
 
 cd generate-sqlite && uv sync && uv run marimo edit notebook.py   # rebuild the catalog
 cd generate-sqlite && uv run pytest                               # pipeline tests, offline
+
+# CI/CD — see docs/DEPLOY.md. Both deploys run from GitHub Actions; nothing below is
+# required locally, but these are what CI runs.
+terraform -chdir=infra/terraform/app apply -var image_tag=<sha> …  # server → Lambda
+docker build --platform linux/arm64 server/                        # the Lambda image
 ```
+
+Shipping the app is `flutter-release.yml`, not `shorebird patch` by hand: it reads `version:` from
+`pubspec.yaml` and **patches if that version already has a release, releases if it does not**. A
+failed patch is not retried as a release — bump the version instead. Patches carry Dart code only,
+so a changed `database/foods.sqlite` or any native change *must* be a release.
 
 Codegen produces `*.g.dart` (riverpod, drift, json_serializable) and `*.freezed.dart`. Run
 build_runner after touching `log.drift`, any `@riverpod`, `@DriftDatabase`, or `@freezed`.
