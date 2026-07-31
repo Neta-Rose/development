@@ -245,7 +245,7 @@ void main() {
     expect(find.text('Onion · raw'), findsOneWidget); // chip
   });
 
-  testWidgets('dragging past top or bottom of preparation types is blocked',
+  testWidgets('dragging past top or bottom of preparations is blocked',
       (tester) async {
     tester.view.physicalSize = const Size(800, 1600);
     tester.view.devicePixelRatio = 1;

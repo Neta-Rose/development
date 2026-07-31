@@ -38,21 +38,23 @@ class PortionDragTracker {
   }
 
   void update(double dx, {int? timestampMs}) {
-    final t = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    final nowMs = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
     final deltaDx = dx - _lastDx;
-    final rawDeltaSec = (t - _lastTimeMs) / 1000.0;
+    final rawDeltaSec = (nowMs - _lastTimeMs) / 1000.0;
+    // Floor at 50 ms to ensure synthetic test gesture updates (where no time elapses)
+    // evaluate at standard velocity rather than infinite speed.
     final deltaSec = rawDeltaSec < 0.05 ? 0.05 : rawDeltaSec;
 
     double gain = 1.0;
-    final v = (deltaDx.abs()) / deltaSec;
-    if (v > 200.0) {
-      final ratio = (v - 200.0) / 1000.0;
+    final velocityPxPerSec = (deltaDx.abs()) / deltaSec;
+    if (velocityPxPerSec > 200.0) {
+      final ratio = (velocityPxPerSec - 200.0) / 1000.0;
       gain = (1.0 + 2.5 * ratio * ratio).clamp(1.0, 3.5);
     }
 
     _virtualDx += deltaDx * gain;
     _lastDx = dx;
-    _lastTimeMs = t;
+    _lastTimeMs = nowMs;
   }
 
   void reset() {
