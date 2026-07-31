@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.14"
+__generated_with = "0.23.15"
 app = marimo.App(width="medium")
 
 
@@ -10,6 +10,14 @@ def _():
     import duckdb
 
     return (mo,)
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(f"""
+    SELECT * FROM "merged_foods" LIMIT 100
+    """, engine=con)
+    return
 
 
 @app.cell(hide_code=True)
@@ -34,7 +42,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import asyncio
     import logging
@@ -105,22 +113,6 @@ def _(con, config, ingest, ingest_button, mo, store):
         f"**Ingest done.** {len(_frames['foods']):,} foods normalized — "
         f"inserted {ingest_counts['inserted']:,}, updated {ingest_counts['updated']:,}.\n\n"
         + " · ".join(f"{t} {n:,}" for t, n in child_counts.items())
-    )
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _(con, mo):
-    _df = mo.sql(
-        f"""
-        SELECT * FROM "foods" LIMIT 100
-        """,
-        engine=con
     )
     return
 
@@ -301,7 +293,7 @@ async def _(
     return (canon_stats,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(canon_stats, con, mo):
     # Read the answers before spending on the rest of the corpus. Grouped by
     # base_key, because that is what clustering will actually do with them —
@@ -321,6 +313,17 @@ def _(canon_stats, con, mo):
             """
         ).pl(),
         label="Identities, biggest first — check that nothing here is two foods",
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM "foods" where base_key is not null LIMIT 1000
+        """,
+        engine=con
     )
     return
 
@@ -818,7 +821,7 @@ def _(mo, review_df):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM "merged_foods" WHERE review_status != 'pending' LIMIT 100
+        SELECT * FROM "foods" LIMIT 100
         """,
         engine=con
     )
@@ -829,18 +832,7 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM "merged_preps" where merged_food_id = '167778' LIMIT 100
-        """,
-        engine=con
-    )
-    return
-
-
-@app.cell
-def _(con, mo):
-    _df = mo.sql(
-        f"""
-        SELECT * FROM "foods" where fdc_id = '167778' LIMIT 100
+        SELECT * FROM "merged_foods" LIMIT 100
         """,
         engine=con
     )
@@ -1062,14 +1054,6 @@ def _(con, get_review_version, mo, store):
         mo.ui.table(store.status_summary(con), selection=None),
         mo.accordion({"audit_log tail": mo.ui.table(store.audit_tail(con), selection=None)}),
     ])
-    return
-
-
-@app.cell
-def _(con, mo):
-    _df = mo.sql(f"""
-    SELECT * FROM "foods" LIMIT 100
-    """, engine=con)
     return
 
 
