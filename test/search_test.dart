@@ -245,6 +245,71 @@ void main() {
     expect(find.text('Onion · raw'), findsOneWidget); // chip
   });
 
+  testWidgets('dragging past top or bottom of preparation types is blocked',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    _ignoreOverflow();
+
+    const three = FoodHit(
+      name: 'Onion',
+      ref: CatalogRef(170000),
+      kcal100g: 40,
+      servingG: 160,
+      servingLabel: 'cup, chopped',
+      prepLabel: 'raw',
+      preps: [_onionRaw, _onionBoiled, _onionFrozen],
+      prepIndex: 0,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith((ref) async => [three]),
+        ],
+        child: const MaterialApp(home: SearchScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('raw'), findsOneWidget);
+
+    // At top (index 0): drag down (attempting to scroll up past top)
+    var gesture = await tester.startGesture(
+        tester.getCenter(find.text('raw', skipOffstage: false)));
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // Remains on 'raw'
+    expect(find.text('raw'), findsOneWidget);
+
+    // Now navigate to bottom (index 2: 'frozen') by tapping next twice
+    await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('frozen'), findsOneWidget);
+
+    // At bottom (index 2): drag up (attempting to scroll down past bottom)
+    gesture = await tester.startGesture(
+        tester.getCenter(find.text('frozen', skipOffstage: false)));
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // Remains on 'frozen'
+    expect(find.text('frozen'), findsOneWidget);
+  });
+
   testWidgets('single preparation non-raw item shows static preparation pill, raw/null hides pill',
       (tester) async {
     tester.view.physicalSize = const Size(800, 1600);

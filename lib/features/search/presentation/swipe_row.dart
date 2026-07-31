@@ -61,9 +61,10 @@ class SwipeRow extends StatefulWidget {
 class _SwipeRowState extends State<SwipeRow> {
   Offset _start = Offset.zero;
   Offset _delta = Offset.zero;
+  final _dragTracker = PortionDragTracker();
 
   Portion? get _picked => portionForDrag(
-        _delta.dx,
+        _dragTracker.virtualDx,
         _delta.dy,
         unitG: widget.unitG,
         unitLabel: widget.unitLabel,
@@ -71,7 +72,10 @@ class _SwipeRowState extends State<SwipeRow> {
 
   bool get _removing => widget.onRemove != null && _delta.dx < _armAt;
 
-  void _reset() => setState(() => _delta = Offset.zero);
+  void _reset() => setState(() {
+        _delta = Offset.zero;
+        _dragTracker.reset();
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -92,9 +96,12 @@ class _SwipeRowState extends State<SwipeRow> {
       onHorizontalDragStart: (d) => setState(() {
         _start = d.globalPosition;
         _delta = Offset.zero;
+        _dragTracker.start(0);
       }),
-      onHorizontalDragUpdate: (d) =>
-          setState(() => _delta = d.globalPosition - _start),
+      onHorizontalDragUpdate: (d) => setState(() {
+        _delta = d.globalPosition - _start;
+        _dragTracker.update(_delta.dx);
+      }),
       onHorizontalDragEnd: (_) {
         if (picked != null) {
           widget.onPicked(picked);

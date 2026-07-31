@@ -19,6 +19,50 @@ const _rungPx = 26.0;
 /// Vertical travel per multiplier step.
 const _multPx = 34.0;
 
+/// Accumulates virtual horizontal displacement for row swiping based on finger
+/// drag velocity and acceleration.
+///
+/// Slow finger travel maintains 1:1 pixel precision, while fast acceleration
+/// non-linearly boosts gain up to a 3.5× cap.
+class PortionDragTracker {
+  double _virtualDx = 0.0;
+  double _lastDx = 0.0;
+  int _lastTimeMs = 0;
+
+  double get virtualDx => _virtualDx;
+
+  void start(double dx, {int? timestampMs}) {
+    _virtualDx = dx;
+    _lastDx = dx;
+    _lastTimeMs = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+  }
+
+  void update(double dx, {int? timestampMs}) {
+    final t = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    final deltaDx = dx - _lastDx;
+    final rawDeltaSec = (t - _lastTimeMs) / 1000.0;
+    final deltaSec = rawDeltaSec < 0.05 ? 0.05 : rawDeltaSec;
+
+    double gain = 1.0;
+    final v = (deltaDx.abs()) / deltaSec;
+    if (v > 200.0) {
+      final ratio = (v - 200.0) / 1000.0;
+      gain = (1.0 + 2.5 * ratio * ratio).clamp(1.0, 3.5);
+    }
+
+    _virtualDx += deltaDx * gain;
+    _lastDx = dx;
+    _lastTimeMs = t;
+  }
+
+  void reset() {
+    _virtualDx = 0.0;
+    _lastDx = 0.0;
+    _lastTimeMs = 0;
+  }
+}
+
+
 /// One rung of the ladder. [whole] marks the food's own serving, the only rung
 /// that can be logged as `qty × label` rather than as bare grams.
 class PortionStep {

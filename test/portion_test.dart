@@ -169,4 +169,27 @@ void main() {
     // A label without a weight behind it is not a unit.
     expect(portionUnits(servingLabel: 'slice').map((u) => u.label), ['g', 'oz']);
   });
+
+  test('PortionDragTracker accelerates virtualDx based on finger velocity', () {
+    final tracker = PortionDragTracker();
+    tracker.start(0, timestampMs: 0);
+
+    // Slow drag: 100 px over 1 second = 100 px/s (< 200 px/s threshold).
+    // Gain should be 1.0, so virtualDx == 100.
+    tracker.update(100, timestampMs: 1000);
+    expect(tracker.virtualDx, closeTo(100.0, 1e-3));
+
+    // Reset and test fast drag: 500 px over 250 ms = 2000 px/s (> 1200 px/s cap speed).
+    // Gain should be capped at 3.5x.
+    tracker.start(0, timestampMs: 0);
+    tracker.update(500, timestampMs: 250);
+    // virtualDx should be 500 * 3.5 = 1750.
+    expect(tracker.virtualDx, closeTo(1750.0, 1e-3));
+
+    // Slow step after fast drag: 10 px over 100 ms = 100 px/s.
+    // Gain for this step drops back to 1.0x, adding 10 to virtualDx.
+    tracker.update(510, timestampMs: 350);
+    expect(tracker.virtualDx, closeTo(1760.0, 1e-3));
+  });
 }
+

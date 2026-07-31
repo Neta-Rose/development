@@ -503,6 +503,7 @@ class _ResultRow extends StatefulWidget {
 class _ResultRowState extends State<_ResultRow> {
   Offset _start = Offset.zero;
   Offset _delta = Offset.zero;
+  final _dragTracker = PortionDragTracker();
 
   /// Which preparation the wheel rests on. Starts on the item's default, which
   /// is the food the hit itself already describes.
@@ -513,13 +514,16 @@ class _ResultRowState extends State<_ResultRow> {
       widget.food.preps.isEmpty ? widget.food : widget.food.preps[_prep];
 
   Portion? get _picked => portionForDrag(
-        _delta.dx,
+        _dragTracker.virtualDx,
         _delta.dy,
         unitG: _food.unitG,
         unitLabel: _food.unitLabel,
       );
 
-  void _reset() => setState(() => _delta = Offset.zero);
+  void _reset() => setState(() {
+        _delta = Offset.zero;
+        _dragTracker.reset();
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -536,9 +540,12 @@ class _ResultRowState extends State<_ResultRow> {
       onHorizontalDragStart: (d) => setState(() {
         _start = d.globalPosition;
         _delta = Offset.zero;
+        _dragTracker.start(0);
       }),
-      onHorizontalDragUpdate: (d) =>
-          setState(() => _delta = d.globalPosition - _start),
+      onHorizontalDragUpdate: (d) => setState(() {
+        _delta = d.globalPosition - _start;
+        _dragTracker.update(_delta.dx);
+      }),
       onHorizontalDragEnd: (_) {
         if (picked != null) widget.onAdd(food, picked);
         _reset();
@@ -731,7 +738,10 @@ class _PrepWheelState extends State<_PrepWheel> {
     // The list may lead the finger by most of a row, but never by a whole one:
     // past that the label being dragged towards would leave the window before it
     // has been chosen.
-    final dy = _dy.clamp(-prepRowPx * 0.9, prepRowPx * 0.9);
+    final minDy =
+        widget.index == widget.preps.length - 1 ? 0.0 : -prepRowPx * 0.9;
+    final maxDy = widget.index == 0 ? 0.0 : prepRowPx * 0.9;
+    final dy = _dy.clamp(minDy, maxDy);
 
     return GestureDetector(
       dragStartBehavior: DragStartBehavior.down,
