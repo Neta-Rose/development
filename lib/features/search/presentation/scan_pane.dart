@@ -260,10 +260,7 @@ class _MatchCardState extends ConsumerState<_MatchCard>
     final session = widget.session;
     final match = session.match;
     final food = match.food;
-    // A scanned product always has a serving — naming the amount on the packet is
-    // most of what the barcode is for.
-    final unit = PortionUnit(food.servingLabel!, food.servingG!);
-    final portion = portionFor(session.qty.toDouble(), unit);
+    final portion = portionFor(session.qty.toDouble(), match.serving);
     final scan = ref.read(scanProvider.notifier);
 
     return SlideTransition(

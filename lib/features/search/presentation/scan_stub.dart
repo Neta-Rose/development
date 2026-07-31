@@ -1,4 +1,5 @@
 import '../../home/data/catalog_repository.dart';
+import '../domain/portion.dart';
 import 'scan_providers.dart';
 
 /// The products barcode scan resolves to, in order.
@@ -82,6 +83,7 @@ ScanProduct _product({
   return ScanProduct(
     brand: brand,
     code: code,
+    serving: PortionUnit(serving, servingG),
     food: FoodHit(
       name: name,
       isCustom: true,

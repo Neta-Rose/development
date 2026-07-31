@@ -402,8 +402,7 @@ void main() {
 
     for (final product in scanProducts) {
       final food = product.food;
-      final serving =
-          portionFor(1, PortionUnit(food.servingLabel!, food.servingG!));
+      final serving = portionFor(1, product.serving);
       final want = label[food.name]!;
       expect(serving.grams, food.servingG);
       expect(

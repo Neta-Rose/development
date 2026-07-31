@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../home/data/catalog_repository.dart';
+import '../domain/portion.dart';
 import 'scan_stub.dart';
 
 part 'scan_providers.g.dart';
@@ -22,12 +23,13 @@ enum ScanPhase {
   found,
 }
 
-/// A scanned product: an ordinary [FoodHit] plus the two things a packet has that
-/// a search hit does not.
+/// A scanned product: an ordinary [FoodHit] plus the three things a packet has
+/// that a search hit does not.
 class ScanProduct {
   const ScanProduct({
     required this.brand,
     required this.code,
+    required this.serving,
     required this.food,
   });
 
@@ -35,6 +37,10 @@ class ScanProduct {
 
   /// As printed under the bars, spaced the way the packet spaces it.
   final String code;
+
+  /// The amount printed on the packet. Never absent — naming it is most of what
+  /// the barcode is for.
+  final PortionUnit serving;
 
   final FoodHit food;
 }
