@@ -103,7 +103,7 @@ class _QuickAddState extends State<QuickAdd> {
       FoodHit(
         name: name.isEmpty ? 'Quick entry' : name,
         // No custom_foods row yet — logAll creates one from these numbers.
-        isCustom: true,
+        ref: const UnsavedRef(),
         emoji: _emoji,
         kcal100g: _kcalEffective.toDouble(),
         protein100g: _value(_protein),

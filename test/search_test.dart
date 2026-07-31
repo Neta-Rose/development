@@ -12,8 +12,7 @@ import 'package:healthapp/features/search/presentation/search_screen.dart';
 
 const _apple = FoodHit(
   name: 'Apple',
-  isCustom: false,
-  foodId: 1,
+  ref: CatalogRef(1),
   emoji: '🍎',
   kcal100g: 52,
   protein100g: 0,
@@ -249,7 +248,9 @@ void main() {
         overrides: [
           searchResultsProvider.overrideWith((ref) async => [_apple]),
           foodPortionsProvider(1).overrideWith((ref) async => const []),
-          foodExtrasProvider(foodId: 1, customId: null)
+          // The same canonical const instance `_apple` carries, which is what
+          // the family key compares by.
+          foodExtrasProvider(const CatalogRef(1))
               .overrideWith((ref) async => null),
         ],
         child: const MaterialApp(home: SearchScreen()),

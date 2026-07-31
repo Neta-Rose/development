@@ -10,18 +10,41 @@ part 'catalog_repository.g.dart';
 Future<CatalogRepository> catalogRepository(Ref ref) async =>
     CatalogRepository(await ref.watch(appDatabaseProvider.future));
 
-/// One search hit, from either the catalog or the user's own foods.
+/// Which food a hit is, and so which table it lives in. Exactly three cases, so
+/// the combinations that a boolean plus two nullable ids could express — and
+/// that no consumer knows what to do with — cannot be constructed.
 ///
-/// A hit read out of the database has exactly one of [foodId]/[customFoodId],
-/// mirroring the `log_entries` CHECK. A quick entry typed on the search screen
-/// is the third case: `isCustom` with **neither** id, meaning "no `custom_foods`
-/// row yet". `Batch.logAll` creates the row on its way out.
+/// None of the three carries value equality; see
+/// `docs/adr/0001-food-ref-carries-no-equality.md` before adding it.
+sealed class FoodRef {
+  const FoodRef();
+}
+
+/// A food from the read-only USDA catalog.
+final class CatalogRef extends FoodRef {
+  const CatalogRef(this.id);
+  final int id;
+}
+
+/// A food the user owns — a `custom_foods` row, recipes included.
+final class CustomRef extends FoodRef {
+  const CustomRef(this.id);
+  final String id;
+}
+
+/// No row in either table yet. App-only: the log table rejects it, and
+/// `Batch.logAll` materialises it on the way out.
+final class UnsavedRef extends FoodRef {
+  const UnsavedRef();
+}
+
+/// One search hit — catalog food, custom food or unsaved food, so the results
+/// list has a single row type. [ref] says which; everything else reads the same
+/// whichever it is.
 class FoodHit {
   const FoodHit({
     required this.name,
-    required this.isCustom,
-    this.foodId,
-    this.customFoodId,
+    required this.ref,
     this.emoji,
     this.kcal100g,
     this.protein100g,
@@ -32,9 +55,7 @@ class FoodHit {
   });
 
   final String name;
-  final bool isCustom;
-  final int? foodId;
-  final String? customFoodId;
+  final FoodRef ref;
   final String? emoji;
   final double? kcal100g;
   final double? protein100g;
@@ -130,8 +151,18 @@ class CatalogRepository {
       // indexes, so their bm25 magnitudes are not comparable. A trigram hit is
       // strictly the lower-confidence answer, so it belongs after every exact
       // one regardless of score.
-      final seen = hits.map((h) => h.foodId).toSet();
-      hits = [...hits, ...fuzzy.where((h) => !seen.contains(h.foodId))];
+      //
+      // Both passes query the catalog, so every hit on either side is a catalog
+      // food. The pattern states that rather than casting to it.
+      final seen = {
+        for (final h in hits)
+          if (h.ref case CatalogRef(:final id)) id,
+      };
+      hits = [
+        ...hits,
+        for (final h in fuzzy)
+          if (h.ref case CatalogRef(:final id) when !seen.contains(id)) h,
+      ];
     }
 
     return [...await _customSearch(term, since), ...hits];
@@ -258,8 +289,7 @@ class CatalogRepository {
     return [
       for (final r in rows)
         FoodHit(
-          isCustom: false,
-          foodId: r.read<int>('food_id'),
+          ref: CatalogRef(r.read<int>('food_id')),
           name: r.read<String>('name'),
           emoji: r.readNullable<String>('emoji'),
           kcal100g: r.readNullable<double>('kcal_100g'),
@@ -295,8 +325,7 @@ class CatalogRepository {
     return [
       for (final r in rows)
         FoodHit(
-          isCustom: true,
-          customFoodId: r.read<String>('id'),
+          ref: CustomRef(r.read<String>('id')),
           name: r.read<String>('name'),
           emoji: r.readNullable<String>('emoji'),
           kcal100g: r.readNullable<double>('energy_kcal'),
@@ -327,18 +356,26 @@ class CatalogRepository {
   }
 
   /// The handful of extra nutrients the detail screen breaks out, from
-  /// whichever table the hit came from — the two carry name-identical nutrient
-  /// columns, so only the table and the key differ.
+  /// whichever table the food is stored in — the two carry name-identical
+  /// nutrient columns, so only the table and the key differ.
   ///
-  /// Null for a quick entry, which has no row in either table yet, and for the
-  /// two catalog foods with no `food_nutrition` row. Callers show nothing.
-  Future<FoodExtras?> extraNutrients({int? foodId, String? customId}) async {
-    if (customId == null && foodId == null) return null;
+  /// Null for an unsaved food, which has no row to read, and for the two catalog
+  /// foods with no `food_nutrition` row. Callers show nothing.
+  Future<FoodExtras?> extraNutrients(FoodRef food) => switch (food) {
+        CatalogRef(:final id) => _extras(
+            'catalog.food_nutrition', 'food_id', Variable(id), const {}),
+        CustomRef(:final id) =>
+          _extras('custom_foods', 'id', Variable(id), {_db.customFoods}),
+        UnsavedRef() => Future.value(),
+      };
+
+  Future<FoodExtras?> _extras(String table, String keyColumn, Variable key,
+      Set<ResultSetImplementation> readsFrom) async {
     final rows = await _db.customSelect(
-      'SELECT fiber_g, sugar_g, sat_fat_g, sodium_mg FROM '
-      '${customId != null ? 'custom_foods WHERE id = ?' : 'catalog.food_nutrition WHERE food_id = ?'}',
-      variables: [customId != null ? Variable(customId) : Variable(foodId)],
-      readsFrom: customId != null ? {_db.customFoods} : const {},
+      'SELECT fiber_g, sugar_g, sat_fat_g, sodium_mg '
+      'FROM $table WHERE $keyColumn = ?',
+      variables: [key],
+      readsFrom: readsFrom,
     ).get();
     if (rows.isEmpty) return null;
     final r = rows.first;

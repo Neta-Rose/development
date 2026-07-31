@@ -74,10 +74,15 @@ class _PortionPadState extends ConsumerState<PortionPad>
   Widget build(BuildContext context) {
     final food = widget.food;
     // Catalog measures arrive late and are optional: the pad renders at once on
-    // the food's own serving and gains chips when the query lands.
-    final catalog = food.foodId == null
-        ? const <({String label, double gramWeight})>[]
-        : ref.watch(foodPortionsProvider(food.foodId!)).value ?? const [];
+    // the food's own serving and gains chips when the query lands. Only a
+    // catalog food has any — the other two offer their own serving and nothing
+    // else.
+    final catalog = switch (food.ref) {
+      CatalogRef(:final id) =>
+        ref.watch(foodPortionsProvider(id)).value ?? const [],
+      CustomRef() || UnsavedRef() =>
+        const <({String label, double gramWeight})>[],
+    };
     final units = portionUnits(
       servingG: food.servingG,
       servingLabel: food.servingLabel,

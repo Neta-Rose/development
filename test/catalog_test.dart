@@ -15,6 +15,11 @@ import 'package:healthapp/features/search/presentation/search_providers.dart';
 BatchItem _staged(FoodHit food, {AiOrigin? ai}) =>
     BatchItem(food, const Portion(grams: 100, label: '100 g'), ai: ai);
 
+/// The catalog id of a hit, or null if it is not a catalog food. `FoodRef` has
+/// no value equality, so its cases are read out rather than compared.
+int? _catalogId(FoodHit hit) =>
+    switch (hit.ref) { CatalogRef(:final id) => id, _ => null };
+
 /// Runs against the real `database/foods.sqlite`, attached to an in-memory log.
 /// These are the paths where a silent mistake is most expensive: the 50-column
 /// snapshot SQL, the recipe roll-up, the trigram fallback, and the batch's
@@ -133,8 +138,7 @@ void main() {
 
     // Custom foods have no FTS index; a LIKE scan covers name and brand.
     final hits = await catalog.search('Whey');
-    expect(hits.first.isCustom, isTrue);
-    expect(hits.first.customFoodId, id);
+    expect(hits.first.ref, isA<CustomRef>().having((r) => r.id, 'id', id));
   });
 
   test('recipe roll-up is the grams-weighted mean of its ingredients',
@@ -232,14 +236,15 @@ void main() {
     // The worst-ranked hit, so any movement is unambiguously the recency term
     // and not a tie being broken differently.
     final victim = before.last;
-    expect(victim.isCustom, isFalse);
+    expect(victim.ref, isA<CatalogRef>());
+    final victimId = _catalogId(victim);
 
     for (var i = 0; i < 3; i++) {
-      await log.logCatalogFood(victim.foodId!, grams: 100);
+      await log.logCatalogFood(victimId!, grams: 100);
     }
 
     final after = await catalog.search('pasta');
-    expect(after.indexWhere((h) => h.foodId == victim.foodId),
+    expect(after.indexWhere((h) => _catalogId(h) == victimId),
         lessThan(before.length - 1),
         reason: '${victim.name} was logged 3x and should have moved up');
   });
@@ -262,8 +267,7 @@ void main() {
         grams: 316, portionQty: 2, portionLabel: 'cup');
 
     final hit = (await log.recent()).single;
-    expect(hit.foodId, foodId);
-    expect(hit.isCustom, isFalse);
+    expect(_catalogId(hit), foodId);
     expect(hit.name, pick.read<String>('name'));
     // Nutrients stay per 100 g, exactly as the catalog states them.
     expect(hit.kcal100g, closeTo(pick.read<double>('energy_kcal'), 1e-9));
@@ -302,13 +306,14 @@ void main() {
 
     final c = batchScope();
     final batch = c.read(batchProvider.notifier);
-    batch.add(_staged(
-        FoodHit(name: 'Catalog food', isCustom: false, foodId: foodId)));
-    batch.add(_staged(
-        FoodHit(name: 'Whey Isolate', isCustom: true, customFoodId: customId)));
-    // Neither id: no row in either table yet.
+    batch.add(_staged(FoodHit(name: 'Catalog food', ref: CatalogRef(foodId))));
+    batch.add(_staged(FoodHit(name: 'Whey Isolate', ref: CustomRef(customId))));
+    // No row in either table yet.
     batch.add(_staged(const FoodHit(
-        name: 'Quick entry', isCustom: true, kcal100g: 210, protein100g: 30)));
+        name: 'Quick entry',
+        ref: UnsavedRef(),
+        kcal100g: 210,
+        protein100g: 30)));
 
     await batch.logAll();
 
@@ -344,8 +349,8 @@ void main() {
 
   test('a detected food reuses its row, a typed one gets its own', () async {
     const detected =
-        FoodHit(name: 'Grilled chicken', isCustom: true, kcal100g: 200);
-    const typed = FoodHit(name: 'Quick entry', isCustom: true, kcal100g: 210);
+        FoodHit(name: 'Grilled chicken', ref: UnsavedRef(), kcal100g: 200);
+    const typed = FoodHit(name: 'Quick entry', ref: UnsavedRef(), kcal100g: 210);
 
     final batch = batchScope().read(batchProvider.notifier);
     // The detector names a food identically every time it sees it, so its rows
@@ -381,7 +386,7 @@ void main() {
         .single;
 
     final fromCatalog =
-        await catalog.extraNutrients(foodId: pick.read<int>('food_id'));
+        await catalog.extraNutrients(CatalogRef(pick.read<int>('food_id')));
     expect(fromCatalog!.fiber, closeTo(pick.read<double>('fiber_g'), 1e-9));
     expect(fromCatalog.sodium, closeTo(pick.read<double>('sodium_mg'), 1e-9));
 
@@ -392,14 +397,14 @@ void main() {
       servingG: 100,
       perServing: {'fiber_g': 43, 'sat_fat_g': 0.6, 'sodium_mg': 2},
     );
-    final fromCustom = await catalog.extraNutrients(customId: customId);
+    final fromCustom = await catalog.extraNutrients(CustomRef(customId));
     expect(fromCustom!.fiber, closeTo(43, 1e-9));
     expect(fromCustom.satFat, closeTo(0.6, 1e-9));
     expect(fromCustom.sodium, closeTo(2, 1e-9));
     expect(fromCustom.sugar, null);
 
     // An unsaved food has no row in either table.
-    expect(await catalog.extraNutrients(), null);
+    expect(await catalog.extraNutrients(const UnsavedRef()), null);
 
     // 2 of the 13,694 catalog foods have no food_nutrition row. They show
     // nothing rather than failing.
@@ -410,7 +415,7 @@ void main() {
     ).get())
         .single
         .read<int>('food_id');
-    expect(await catalog.extraNutrients(foodId: without), null);
+    expect(await catalog.extraNutrients(CatalogRef(without)), null);
   });
 
   test('negative carb_g foods stay loggable', () async {

@@ -42,13 +42,15 @@ Future<List<({String label, double gramWeight})>> foodPortions(
         Ref ref, int foodId) async =>
     (await ref.watch(catalogRepositoryProvider.future)).portions(foodId);
 
-/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-/// rather than the [FoodHit] itself, which has no value equality.
+/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+///
+/// Keyed on the food's identity, which compares by identity rather than by value
+/// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+/// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+/// so a later visit re-queries either way.
 @riverpod
-Future<FoodExtras?> foodExtras(Ref ref,
-        {int? foodId, String? customId}) async =>
-    (await ref.watch(catalogRepositoryProvider.future))
-        .extraNutrients(foodId: foodId, customId: customId);
+Future<FoodExtras?> foodExtras(Ref ref, FoodRef food) async =>
+    (await ref.watch(catalogRepositoryProvider.future)).extraNutrients(food);
 
 /// One picked amount of one food, staged but not yet logged.
 class BatchItem {
@@ -108,57 +110,54 @@ class Batch extends _$Batch {
     for (final item in state) {
       final food = item.food;
       final p = item.portion;
-      // A hit out of the database has exactly one of the two ids; a quick entry
-      // has neither until the row below is written.
-      if (food.isCustom) {
-        // Saved here rather than when the chip was staged: nothing else on the
-        // search screen writes before the check button, and a chip swiped off
-        // the strip would otherwise leave an orphan custom_foods row.
-        //
-        // ponytail: every quick add writes its own row, so the same off-menu
-        // food typed twice is two rows. `recent()` surfaces yesterday's, which
-        // is cheaper than retyping — dedupe by name if that stops holding.
-        final id = food.customFoodId ??
-            (item.ai != null
-                // A food the detector supplied whole. The *detector* will name
-                // it identically every time it sees it, so this path reuses the
-                // row instead of accumulating one per meal.
-                ? await repo.findOrCreateCustomFood(
-                    name: food.name,
-                    emoji: food.emoji,
-                    per100g: {
-                      'energy_kcal': food.kcal100g ?? 0,
-                      'protein_g': food.protein100g ?? 0,
-                      'fat_g': food.fat100g ?? 0,
-                      'carb_g': food.carb100g ?? 0,
-                    },
-                  )
-                : await repo.saveCustomFood(
-                    name: food.name,
-                    emoji: food.emoji,
-                    // A quick entry is one nominal 100 g serving, so
-                    // saveCustomFood's divisor is 1 and the typed numbers land
-                    // verbatim as per 100 g.
-                    servingG: 100,
-                    servingLabel: 'serving',
-                    perServing: {
-                      'energy_kcal': food.kcal100g ?? 0,
-                      'protein_g': food.protein100g ?? 0,
-                      'fat_g': food.fat100g ?? 0,
-                      'carb_g': food.carb100g ?? 0,
-                    },
-                  ));
-        await repo.logCustomFood(id,
-            grams: p.grams,
-            portionQty: p.qty,
-            portionLabel: p.portionLabel,
-            at: at);
-      } else {
-        await repo.logCatalogFood(food.foodId!,
-            grams: p.grams,
-            portionQty: p.qty,
-            portionLabel: p.portionLabel,
-            at: at);
+      Future<void> logCustom(String id) => repo.logCustomFood(id,
+          grams: p.grams,
+          portionQty: p.qty,
+          portionLabel: p.portionLabel,
+          at: at);
+
+      switch (food.ref) {
+        case CatalogRef(:final id):
+          await repo.logCatalogFood(id,
+              grams: p.grams,
+              portionQty: p.qty,
+              portionLabel: p.portionLabel,
+              at: at);
+        case CustomRef(:final id):
+          await logCustom(id);
+        case UnsavedRef():
+          // Written here rather than when the chip was staged: nothing else on
+          // the search screen writes before the check button, and a chip swiped
+          // off the strip would otherwise leave an orphan custom_foods row.
+          //
+          // Which write is a question of where the staged food came from, not of
+          // what it is — so it stays keyed on the origin the item carries.
+          //
+          // ponytail: every quick add writes its own row, so the same off-menu
+          // food typed twice is two rows. `recent()` surfaces yesterday's, which
+          // is cheaper than retyping — dedupe by name if that stops holding.
+          final macros = {
+            'energy_kcal': food.kcal100g ?? 0,
+            'protein_g': food.protein100g ?? 0,
+            'fat_g': food.fat100g ?? 0,
+            'carb_g': food.carb100g ?? 0,
+          };
+          await logCustom(item.ai != null
+              // A food the detector supplied whole. The *detector* will name it
+              // identically every time it sees it, so this path reuses the row
+              // instead of accumulating one per meal.
+              ? await repo.findOrCreateCustomFood(
+                  name: food.name, emoji: food.emoji, per100g: macros)
+              : await repo.saveCustomFood(
+                  name: food.name,
+                  emoji: food.emoji,
+                  // A quick entry is one nominal 100 g serving, so
+                  // saveCustomFood's divisor is 1 and the typed numbers land
+                  // verbatim as per 100 g.
+                  servingG: 100,
+                  servingLabel: 'serving',
+                  perServing: macros,
+                ));
       }
     }
     state = const [];

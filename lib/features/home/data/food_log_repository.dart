@@ -36,9 +36,15 @@ class FoodLogRepository {
       for (final r in rows)
         FoodHit(
           name: r.name,
-          isCustom: r.customFoodId != null,
-          foodId: r.foodId,
-          customFoodId: r.customFoodId,
+          ref: switch ((r.foodId, r.customFoodId)) {
+            (final int id, null) => CatalogRef(id),
+            (null, final String id) => CustomRef(id),
+            // Unreachable while the table's CHECK holds, and worth saying so
+            // out loud rather than asserting the ids non-null and dereferencing.
+            final pair => throw StateError(
+                'log_entries (food_id, custom_food_id) = $pair breaks '
+                'CHECK ((food_id IS NULL) <> (custom_food_id IS NULL))'),
+          },
           emoji: r.emoji,
           kcal100g: r.energyKcal,
           protein100g: r.proteinG,

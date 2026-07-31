@@ -91,9 +91,9 @@ class PlateCandidate {
 
   final String instanceId;
 
-  /// Either a catalog row, or a food the detector supplied whole. `isCustom`
-  /// with neither id is the latter, which is the same shape quick add produces
-  /// and which `Batch.logAll` already knows how to write.
+  /// Either a catalog row, or a food the detector supplied whole. The latter is
+  /// an unsaved food, the same shape quick add produces and which
+  /// `Batch.logAll` already knows how to write.
   final FoodHit food;
 
   final double grams;
@@ -187,9 +187,9 @@ PlateCandidate? resolveDetection(
     instanceId: detection.instanceId,
     food: FoodHit(
       name: name,
-      // Custom with neither id: no `custom_foods` row exists yet. The row is
-      // written on the way out, the same path quick add takes.
-      isCustom: true,
+      // No `custom_foods` row exists yet. It is written on the way out, the
+      // same path quick add takes.
+      ref: const UnsavedRef(),
       emoji: emoji.isEmpty ? null : emoji,
       kcal100g: per100g.kcal,
       protein100g: per100g.protein,

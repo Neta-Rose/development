@@ -65,10 +65,7 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
     // Captured while the route is certainly current: `log all` runs after the
     // pad's `onAdd` has already popped this screen.
     final nav = Navigator.of(context);
-    final extras = ref
-        .watch(foodExtrasProvider(
-            foodId: food.foodId, customId: food.customFoodId))
-        .value;
+    final extras = ref.watch(foodExtrasProvider(food.ref)).value;
 
     return Scaffold(
       backgroundColor: AppColors.bg,

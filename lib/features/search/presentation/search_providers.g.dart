@@ -201,14 +201,22 @@ final class FoodPortionsFamily extends $Family
   String toString() => r'foodPortionsProvider';
 }
 
-/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-/// rather than the [FoodHit] itself, which has no value equality.
+/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+///
+/// Keyed on the food's identity, which compares by identity rather than by value
+/// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+/// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+/// so a later visit re-queries either way.
 
 @ProviderFor(foodExtras)
 final foodExtrasProvider = FoodExtrasFamily._();
 
-/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-/// rather than the [FoodHit] itself, which has no value equality.
+/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+///
+/// Keyed on the food's identity, which compares by identity rather than by value
+/// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+/// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+/// so a later visit re-queries either way.
 
 final class FoodExtrasProvider
     extends
@@ -218,11 +226,15 @@ final class FoodExtrasProvider
           FutureOr<FoodExtras?>
         >
     with $FutureModifier<FoodExtras?>, $FutureProvider<FoodExtras?> {
-  /// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-  /// rather than the [FoodHit] itself, which has no value equality.
+  /// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+  ///
+  /// Keyed on the food's identity, which compares by identity rather than by value
+  /// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+  /// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+  /// so a later visit re-queries either way.
   FoodExtrasProvider._({
     required FoodExtrasFamily super.from,
-    required ({int? foodId, String? customId}) super.argument,
+    required FoodRef super.argument,
   }) : super(
          retry: null,
          name: r'foodExtrasProvider',
@@ -238,7 +250,7 @@ final class FoodExtrasProvider
   String toString() {
     return r'foodExtrasProvider'
         ''
-        '$argument';
+        '($argument)';
   }
 
   @$internal
@@ -249,12 +261,8 @@ final class FoodExtrasProvider
 
   @override
   FutureOr<FoodExtras?> create(Ref ref) {
-    final argument = this.argument as ({int? foodId, String? customId});
-    return foodExtras(
-      ref,
-      foodId: argument.foodId,
-      customId: argument.customId,
-    );
+    final argument = this.argument as FoodRef;
+    return foodExtras(ref, argument);
   }
 
   @override
@@ -268,17 +276,17 @@ final class FoodExtrasProvider
   }
 }
 
-String _$foodExtrasHash() => r'cf4cc3c2f489eda976b73692c379857c7159a3f4';
+String _$foodExtrasHash() => r'55b1539418e22ea942452d4a347b7efa1075b068';
 
-/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-/// rather than the [FoodHit] itself, which has no value equality.
+/// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+///
+/// Keyed on the food's identity, which compares by identity rather than by value
+/// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+/// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+/// so a later visit re-queries either way.
 
 final class FoodExtrasFamily extends $Family
-    with
-        $FunctionalFamilyOverride<
-          FutureOr<FoodExtras?>,
-          ({int? foodId, String? customId})
-        > {
+    with $FunctionalFamilyOverride<FutureOr<FoodExtras?>, FoodRef> {
   FoodExtrasFamily._()
     : super(
         retry: null,
@@ -288,14 +296,15 @@ final class FoodExtrasFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g. Keyed on the ids
-  /// rather than the [FoodHit] itself, which has no value equality.
+  /// The detail screen's fibre/sugar/sat-fat/sodium, per 100 g.
+  ///
+  /// Keyed on the food's identity, which compares by identity rather than by value
+  /// (ADR-0001). Safe here: one detail screen watches it, holding one hit for its
+  /// lifetime, so the key is a stable instance — and the provider is auto-dispose,
+  /// so a later visit re-queries either way.
 
-  FoodExtrasProvider call({int? foodId, String? customId}) =>
-      FoodExtrasProvider._(
-        argument: (foodId: foodId, customId: customId),
-        from: this,
-      );
+  FoodExtrasProvider call(FoodRef food) =>
+      FoodExtrasProvider._(argument: food, from: this);
 
   @override
   String toString() => r'foodExtrasProvider';
@@ -339,7 +348,7 @@ final class BatchProvider extends $NotifierProvider<Batch, List<BatchItem>> {
   }
 }
 
-String _$batchHash() => r'65300c472a63dcc0a95f7385a842f3ab4d5c117e';
+String _$batchHash() => r'c7dfe9ff7722ef384be763b1050dd617de01c713';
 
 /// Foods staged on this screen. Nothing is written until [Batch.logAll]; the
 /// batch is screen-scoped, so leaving throws it away.

@@ -65,8 +65,8 @@ final scanProducts = [
 /// Converted once here, so `Portion.scale` converts back and the card shows the
 /// number the packet does.
 ///
-/// `isCustom` with neither id is the same shape quick add produces — a food with
-/// no row yet, which `Batch.logAll` writes on its way out.
+/// An unsaved food, the same shape quick add produces — no row in either table
+/// yet, which `Batch.logAll` writes on its way out.
 ScanProduct _product({
   required String brand,
   required String code,
@@ -86,7 +86,7 @@ ScanProduct _product({
     serving: PortionUnit(serving, servingG),
     food: FoodHit(
       name: name,
-      isCustom: true,
+      ref: const UnsavedRef(),
       emoji: emoji,
       servingG: servingG,
       servingLabel: serving,

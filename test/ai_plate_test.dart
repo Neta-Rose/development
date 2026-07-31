@@ -36,10 +36,13 @@ VisionDetection _detection(
       fat100g: fat,
     );
 
+/// Matches the catalog food with this id. `FoodRef` has no value equality, so
+/// the case and the id are checked rather than compared.
+Matcher _catalogRef(int id) => isA<CatalogRef>().having((r) => r.id, 'id', id);
+
 FoodHit _catalogFood(String name, {int foodId = 1, double? servingG}) => FoodHit(
       name: name,
-      isCustom: false,
-      foodId: foodId,
+      ref: CatalogRef(foodId),
       emoji: '🍗',
       kcal100g: 209,
       protein100g: 26,
@@ -64,7 +67,7 @@ BatchItem _stage(VisionDetection detection) {
 /// A search hit, so the "not touched by a reply" rule has something to prove
 /// itself against.
 BatchItem get _searchItem => BatchItem(
-      const FoodHit(name: 'Banana', isCustom: false, foodId: 99, kcal100g: 89),
+      const FoodHit(name: 'Banana', ref: CatalogRef(99), kcal100g: 89),
       wholeServing(118, 'banana'),
     );
 
@@ -287,8 +290,7 @@ void main() {
           _detection('chicken_1', 'Grilled chicken thigh', grams: 140),
           candidates)!;
 
-      expect(resolved.food.foodId, 5);
-      expect(resolved.food.isCustom, isFalse,
+      expect(resolved.food.ref, _catalogRef(5),
           reason: 'a catalog row carries the whole 50-nutrient vector');
       expect(resolved.grams, 140);
     });
@@ -301,9 +303,7 @@ void main() {
         candidates,
       )!;
 
-      expect(resolved.food.isCustom, isTrue);
-      expect(resolved.food.foodId, isNull);
-      expect(resolved.food.customFoodId, isNull,
+      expect(resolved.food.ref, isA<UnsavedRef>(),
           reason: 'no custom_foods row exists yet; logAll writes it');
       expect(resolved.food.name, 'Birthday cake');
       expect(resolved.food.kcal100g, 380);
@@ -369,7 +369,7 @@ void main() {
         _catalogFood('Chicken thigh, cooked', foodId: 2),
       ];
 
-      expect(bestMatch('Chicken thigh', candidates)!.foodId, 2);
+      expect(bestMatch('Chicken thigh', candidates)!.ref, _catalogRef(2));
       expect(bestMatch('Espresso', candidates), isNull);
     });
 
@@ -380,7 +380,7 @@ void main() {
         _catalogFood('Chicken thigh', foodId: 10),
         _catalogFood('Chicken thigh', foodId: 20),
       ];
-      expect(bestMatch('Chicken thigh', candidates)!.foodId, 10);
+      expect(bestMatch('Chicken thigh', candidates)!.ref, _catalogRef(10));
     });
 
     test('the plate summary describes only AI items', () {
