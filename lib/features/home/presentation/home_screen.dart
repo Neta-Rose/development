@@ -129,50 +129,51 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _hourRow(BuildContext context, WidgetRef ref, TimelineHour hour) {
     final now = hour.kind == HourKind.now;
-    final plan = hour.kind == HourKind.plan;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 7, 20, 3),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: now
-                      ? AppColors.amber
-                      : plan
-                          ? AppColors.bg
-                          : AppColors.badgeBg,
-                  border: plan ? Border.all(color: _dim(.18)) : null,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  hour.label,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    letterSpacing: 1,
-                    fontWeight: now ? FontWeight.w600 : FontWeight.w400,
-                    color: now
-                        ? AppColors.bg
-                        : plan
-                            ? _dim(.4)
-                            : AppColors.fg,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                highlightColor: _dim(.08),
+                splashColor: Colors.transparent,
                 onTap: () => context.push('/search?hour=${hour.hour}'),
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                      color: AppColors.badgeBg, shape: BoxShape.circle),
-                  child: Icon(Icons.add, size: 12, color: _dim(.55)),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 2, 16, 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: now ? AppColors.amber : AppColors.badgeBg,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          hour.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            letterSpacing: 1,
+                            fontWeight:
+                                now ? FontWeight.w600 : FontWeight.w400,
+                            color: now ? AppColors.bg : AppColors.fg,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                            color: AppColors.badgeBg, shape: BoxShape.circle),
+                        child: Icon(Icons.add, size: 14, color: _dim(.55)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const Spacer(),
@@ -181,11 +182,7 @@ class HomeScreen extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 10,
                   letterSpacing: now ? 1.5 : 0,
-                  color: now
-                      ? AppColors.amber
-                      : plan
-                          ? _dim(.3)
-                          : _dim(.5),
+                  color: now ? AppColors.amber : _dim(.5),
                 ),
               ),
             ],
@@ -205,7 +202,7 @@ class HomeScreen extends ConsumerWidget {
       // "still part of the tree" assert.
       resizeDuration: null,
       background: Container(
-        margin: const EdgeInsets.only(left: 34, top: 6),
+        margin: const EdgeInsets.only(left: 34, top: 8),
         padding: const EdgeInsets.only(left: 14),
         alignment: Alignment.centerLeft,
         decoration: BoxDecoration(
@@ -227,7 +224,7 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _foodCardBody(TimelineForDayResult item) {
     return Container(
-      margin: const EdgeInsets.only(left: 34, top: 6),
+      margin: const EdgeInsets.only(left: 34, top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
         color: _dim(.05),

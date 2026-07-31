@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:healthapp/app/theme.dart';
 import 'package:healthapp/features/home/data/catalog_repository.dart';
 import 'package:healthapp/features/search/domain/portion.dart';
 import 'package:healthapp/features/search/presentation/camera_providers.dart';
@@ -193,6 +194,44 @@ void main() {
 
     expect(find.byType(Dismissible), findsOneWidget);
     expect(tester.getSize(find.byType(Dismissible)).height, greaterThan(0));
+  });
+
+  testWidgets('swiping batch chip displays remove visual feedback background',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    _ignoreOverflow();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith((ref) async => [_apple]),
+        ],
+        child: const MaterialApp(home: SearchScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await _swipeToStage(tester, find.text('Apple').last);
+    expect(find.byType(Dismissible), findsOneWidget);
+
+    final dismissibleWidget = tester.widget<Dismissible>(find.byType(Dismissible));
+    expect(dismissibleWidget.background, isNotNull);
+
+    // Start dragging up across multiple frames to clear touch slop and expose the background widget
+    final gesture = await tester.startGesture(tester.getCenter(find.byType(Dismissible)));
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump();
+    }
+
+    expect(find.byIcon(Icons.delete_outline_rounded), findsOneWidget);
+    expect(find.text('REMOVE'), findsOneWidget);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('spinning the wheel restates the row as the other preparation',
@@ -491,7 +530,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.backspace_outlined));
     await tester.pump();
     for (final key in ['1', '5', '0']) {
-      await tester.tap(find.text(key));
+      await tester.tap(find.text(key).last);
       await tester.pump();
     }
     expect(find.text('150 g'), findsOneWidget); // the grams readout
@@ -581,6 +620,57 @@ void main() {
     expect(find.byType(FoodDetailScreen), findsNothing);
     expect(find.byType(Dismissible), findsOneWidget);
     expect(find.text('50 g'), findsOneWidget);
+  });
+
+  testWidgets('food detail screen initial amount is grayed placeholder and overridden by first input',
+      (tester) async {
+    _ignoreOverflow();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith((ref) async => [_apple]),
+          foodPortionsProvider(1).overrideWith((ref) async => const []),
+          foodExtrasProvider(const CatalogRef(1))
+              .overrideWith((ref) async => null),
+        ],
+        child: const MaterialApp(
+          home: FoodDetailScreen(food: _apple),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    Finder onDetail(String text) => find.descendant(
+        of: find.byType(FoodDetailScreen), matching: find.text(text));
+
+    // Initial default amount '100' (for _apple bare grams) should be rendered in grayed placeholder color
+    final Text textWidgetBefore = tester.widget(onDetail('100').first);
+    expect(textWidgetBefore.style?.color, isNotNull);
+    expect(textWidgetBefore.style!.color!.a, closeTo(0.35, 0.05));
+
+    // Backspace while in placeholder state should be ignored (amount remains '100')
+    await tester.tap(find.byIcon(Icons.backspace_outlined));
+    await tester.pump();
+    expect(onDetail('100'), findsOneWidget);
+
+    // Typing a digit ('5') overrides the placeholder completely (becoming '5', not '1005')
+    await tester.tap(find.text('5').last);
+    await tester.pump();
+
+    // Keycap '5' and amount display '5' both exist in FoodDetailScreen
+    expect(onDetail('5'), findsNWidgets(2));
+    expect(find.text('1005'), findsNothing);
+
+    // Text color of amount display should now be fully opaque active AppColors.fg
+    final Text textWidgetAfter = tester.widget(onDetail('5').first);
+    expect(textWidgetAfter.style!.color, AppColors.fg);
+
+    // Backspacing the typed digit '5' deletes all typed digits, returning to default placeholder mode ('1' grayed out)
+    await tester.tap(find.byIcon(Icons.backspace_outlined));
+    await tester.pump();
+
+    final Text textWidgetReverted = tester.widget(onDetail('1').first);
+    expect(textWidgetReverted.style!.color!.a, closeTo(0.35, 0.05));
   });
 
   testWidgets('scan mode searches, and offers a way out while it does',

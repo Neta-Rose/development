@@ -79,7 +79,6 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
                 _hero(food),
                 if (widget.editing != null) _remove(),
                 _targets(food),
-                _energy(food),
                 _nutrients(food, extras),
                 const SizedBox(height: 14),
               ],
@@ -90,6 +89,7 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
             child: PortionPad(
               food: food,
               initial: _portion,
+              isInitialPlaceholder: widget.editing == null,
               onChanged: _sync,
               onAdd: (p) {
                 _stage(p);
@@ -113,15 +113,18 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
       padding: const EdgeInsets.fromLTRB(14, 60, 14, 8),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: const BoxDecoration(
-                  color: AppColors.badgeBg, shape: BoxShape.circle),
-              child: const Icon(Icons.arrow_back_ios_new,
-                  size: 13, color: AppColors.fg),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: const BoxDecoration(
+                    color: AppColors.badgeBg, shape: BoxShape.circle),
+                child: const Icon(Icons.arrow_back_ios_new,
+                    size: 13, color: AppColors.fg),
+              ),
             ),
           ),
           Expanded(
@@ -383,85 +386,7 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
     );
   }
 
-  /// Where the calories actually come from — 4·4·9, the same split the macro
-  /// percentages above are read off.
-  Widget _energy(FoodHit food) {
-    final p = _portion.scale(food.protein100g);
-    final c = _portion.scale(food.carb100g);
-    final f = _portion.scale(food.fat100g);
-    final bars = [
-      ('protein', p * 4, AppColors.protein, _share('PROTEIN', p, c, f)),
-      ('carbs', c * 4, AppColors.carbs, _share('CARBS', p, c, f)),
-      ('fat', f * 9, AppColors.fat, _share('FAT', p, c, f)),
-    ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-          decoration:
-              BoxDecoration(border: Border(top: BorderSide(color: _dim(.08)))),
-          child: _caption('ENERGY BREAKDOWN', spacing: 1.5),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Container(
-                  height: 8,
-                  color: AppColors.tile,
-                  child: Row(
-                    children: [
-                      // Zero-share macros are dropped, not given flex 0: a
-                      // flexible child with no flex still takes its own width.
-                      for (final b in bars)
-                        if (b.$4 > 0)
-                          Expanded(flex: b.$4, child: ColoredBox(color: b.$3)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 14,
-                runSpacing: 6,
-                children: [
-                  for (final b in bars)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration:
-                              BoxDecoration(color: b.$3, shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(b.$1,
-                            style: TextStyle(fontSize: 10, color: _dim(.6))),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${b.$2.round()} kcal',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: _dim(.35),
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
   /// The rows the four list macros don't cover. [extras] arrives a frame or two
   /// late and is null for a quick entry, so every row past the first is

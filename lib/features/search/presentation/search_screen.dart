@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
@@ -171,7 +172,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ],
           const SizedBox(width: 8),
           _modeButton(Icons.bolt, _Mode.quick),
-          const SizedBox(width: 4),
+          const SizedBox(width: 8),
           Opacity(
             opacity: staged ? 1 : .3,
             child: GestureDetector(
@@ -257,6 +258,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   /// recorded, so the next shot's reply does not put it back on the plate the
   /// user just took it off.
   void _removeChip(BatchItem item) {
+    HapticFeedback.lightImpact();
     ref.read(batchProvider.notifier).remove(item);
     final ai = item.ai;
     if (ai != null) {
@@ -285,7 +287,36 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       key: ObjectKey(item),
       direction: DismissDirection.up,
       onDismissed: (_) => _removeChip(item),
-      background: const SizedBox.shrink(),
+      movementDuration: const Duration(milliseconds: 200),
+      resizeDuration: const Duration(milliseconds: 250),
+      background: Container(
+        decoration: BoxDecoration(
+          color: AppColors.danger.withValues(alpha: 0.18),
+          border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.delete_outline_rounded,
+              size: 20,
+              color: AppColors.danger,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'REMOVE',
+              style: TextStyle(
+                fontSize: 7.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+                color: AppColors.danger.withValues(alpha: 0.9),
+              ),
+            ),
+          ],
+        ),
+      ),
       child: GestureDetector(
         // Reopens the amount rather than staging a second one — the detail
         // screen replaces this item in place.
@@ -518,6 +549,7 @@ class _ResultRowState extends State<_ResultRow> {
         _delta.dy,
         unitG: _food.unitG,
         unitLabel: _food.unitLabel,
+        stepIndex: _dragTracker.currentStepIndex,
       );
 
   void _reset() => setState(() {
@@ -575,7 +607,7 @@ class _ResultRowState extends State<_ResultRow> {
               Positioned(
                 top: 0,
                 bottom: 0,
-                left: 0,
+                left: 16,
                 width: shift,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,

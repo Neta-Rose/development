@@ -45,7 +45,7 @@ DailySummary dailySummary(Ref ref) {
   );
 }
 
-enum HourKind { logged, now, plan }
+enum HourKind { logged, now }
 
 class TimelineHour {
   const TimelineHour(
@@ -62,10 +62,6 @@ class TimelineHour {
 
   String get label => hour.toString().padLeft(2, '0');
 }
-
-// ponytail: meal planning isn't built; these rows are static design
-// placeholders until a planning feature exists.
-const _plannedMeals = {13: '~700 kcal plan', 19: '~650 kcal plan'};
 
 @riverpod
 List<TimelineHour> timeline(Ref ref) {
@@ -87,8 +83,6 @@ TimelineHour _hour(int h, List<TimelineForDayResult> items, DateTime now) {
     return TimelineHour(h, totals: _hourTotals(items), entries: items);
   }
   if (h == now.hour) return TimelineHour(h, kind: HourKind.now, totals: 'now');
-  final plan = _plannedMeals[h];
-  if (plan != null) return TimelineHour(h, kind: HourKind.plan, totals: plan);
   return TimelineHour(h);
 }
 

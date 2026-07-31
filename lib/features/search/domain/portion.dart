@@ -28,13 +28,16 @@ class PortionDragTracker {
   double _virtualDx = 0.0;
   double _lastDx = 0.0;
   int _lastTimeMs = 0;
+  int _currentStepIndex = 0;
 
   double get virtualDx => _virtualDx;
+  int get currentStepIndex => _currentStepIndex;
 
   void start(double dx, {int? timestampMs}) {
     _virtualDx = dx;
     _lastDx = dx;
     _lastTimeMs = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    _currentStepIndex = 0;
   }
 
   void update(double dx, {int? timestampMs}) {
@@ -55,12 +58,37 @@ class PortionDragTracker {
     _virtualDx += deltaDx * gain;
     _lastDx = dx;
     _lastTimeMs = nowMs;
+
+    _updateHysteresis();
+  }
+
+  void _updateHysteresis() {
+    if (_virtualDx < _startPx) {
+      _currentStepIndex = 0;
+      return;
+    }
+    const snapHysteresisPx = 6.0;
+    final rawIndex = ((_virtualDx - _startPx) / _rungPx).floor();
+    if (rawIndex > _currentStepIndex) {
+      final boundary = _startPx + (_currentStepIndex + 1) * _rungPx;
+      if (_virtualDx >= boundary + snapHysteresisPx) {
+        _currentStepIndex =
+            ((_virtualDx - snapHysteresisPx - _startPx) / _rungPx).floor();
+      }
+    } else if (rawIndex < _currentStepIndex) {
+      final boundary = _startPx + _currentStepIndex * _rungPx;
+      if (_virtualDx < boundary - snapHysteresisPx) {
+        _currentStepIndex =
+            ((_virtualDx + snapHysteresisPx - _startPx) / _rungPx).floor();
+      }
+    }
   }
 
   void reset() {
     _virtualDx = 0.0;
     _lastDx = 0.0;
     _lastTimeMs = 0;
+    _currentStepIndex = 0;
   }
 }
 
@@ -124,11 +152,26 @@ Portion? portionForDrag(
   double dy, {
   required double unitG,
   String? unitLabel,
+  int? stepIndex,
 }) {
   if (dx < _startPx) return null;
   final steps = portionSteps(unitG);
-  final step = steps[((dx - _startPx) ~/ _rungPx).clamp(0, steps.length - 1)];
-  final mult = _multipliers[(2 + (-dy / _multPx).round())
+  final idx = stepIndex ?? ((dx - _startPx) ~/ _rungPx);
+  final safeIndex = idx.clamp(0, 100000);
+
+  final PortionStep step;
+  if (safeIndex < steps.length) {
+    step = steps[safeIndex];
+  } else {
+    final extra = safeIndex - (steps.length - 1);
+    final unit = unitG > 0 ? unitG : 100.0;
+    final lastGrams = steps.last.grams;
+    final stepG = ((unit * 0.25 / 5).round() * 5.0).clamp(10.0, double.infinity);
+    final extraGrams = lastGrams + extra * stepG;
+    step = PortionStep(extraGrams, whole: false);
+  }
+
+  final mult = _multipliers[(2 + (dy / _multPx).round())
       .clamp(0, _multipliers.length - 1)];
   final grams = (step.grams * mult).roundToDouble();
 

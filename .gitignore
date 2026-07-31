@@ -13,6 +13,7 @@ generate-sqlite/__marimo__
 .swiftpm/
 migrate_working_dir/
 .agents
+build
 
 # IntelliJ related
 *.iml

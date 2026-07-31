@@ -21,6 +21,7 @@ class PortionPad extends ConsumerStatefulWidget {
     required this.onClose,
     required this.onLogAll,
     this.initial,
+    this.isInitialPlaceholder,
     this.onChanged,
   });
 
@@ -32,6 +33,10 @@ class PortionPad extends ConsumerStatefulWidget {
   /// The amount to open on. Null starts at one whole unit — what a fresh row
   /// means — while re-editing a staged amount reopens on that amount.
   final Portion? initial;
+
+  /// Whether the initial amount text is a grayed placeholder that gets overridden
+  /// by the first user key input. Defaults to true when [initial] is null.
+  final bool? isInitialPlaceholder;
 
   /// Fires whenever the typed amount changes, for a host that mirrors it. The
   /// host must ignore an unchanged amount: it rebuilds this pad, which reports
@@ -55,9 +60,13 @@ class _PortionPadState extends ConsumerState<PortionPad>
     final p when p.portionLabel != null => formatQty(p.qty!),
     final p => formatGrams(p.grams),
   };
+  late String _placeholderAmt = _amt;
   late String? _unit = widget.initial == null
       ? null
       : widget.initial!.portionLabel ?? 'g';
+
+  late bool _isPlaceholder =
+      widget.isInitialPlaceholder ?? (widget.initial == null);
 
   @override
   void dispose() {
@@ -67,6 +76,13 @@ class _PortionPadState extends ConsumerState<PortionPad>
 
   /// Capped at the design's seven characters — `1 15/16` is already absurd.
   void _type(String ch) {
+    if (_isPlaceholder) {
+      setState(() {
+        _amt = ch;
+        _isPlaceholder = false;
+      });
+      return;
+    }
     if (_amt.length < 7) setState(() => _amt += ch);
   }
 
@@ -193,13 +209,13 @@ class _PortionPadState extends ConsumerState<PortionPad>
                     _amt,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w600,
                       letterSpacing: -0.5,
                       height: 1,
-                      color: AppColors.fg,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                      color: _isPlaceholder ? _dim(.35) : AppColors.fg,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
@@ -251,9 +267,11 @@ class _PortionPadState extends ConsumerState<PortionPad>
           // rewritten, so `4 oz` becomes `113.4 g`.
           onTap: () {
             final next = units[(units.indexOf(unit) + 1) % units.length];
+            final nextAmt = formatGrams(portion.grams / next.gramWeight);
             setState(() {
               _unit = next.label;
-              _amt = formatGrams(portion.grams / next.gramWeight);
+              _amt = nextAmt;
+              if (_isPlaceholder) _placeholderAmt = nextAmt;
             });
           },
           child: Container(
@@ -286,7 +304,11 @@ class _PortionPadState extends ConsumerState<PortionPad>
   Widget _chip(PortionUnit u, bool on) {
     return GestureDetector(
       // Switching the unit keeps the typed number: `2` cups becomes `2` oz.
-      onTap: () => setState(() => _unit = u.label),
+      onTap: () {
+        setState(() {
+          _unit = u.label;
+        });
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
@@ -334,8 +356,17 @@ class _PortionPadState extends ConsumerState<PortionPad>
           _dig('8'),
           _dig('9'),
           _side(const Icon(Icons.backspace_outlined, size: 15), () {
+            if (_isPlaceholder) return;
             if (_amt.isNotEmpty) {
-              setState(() => _amt = _amt.substring(0, _amt.length - 1));
+              final next = _amt.substring(0, _amt.length - 1);
+              if (next.isEmpty) {
+                setState(() {
+                  _amt = '1';
+                  _isPlaceholder = true;
+                });
+              } else {
+                setState(() => _amt = next);
+              }
             }
           }),
         ]),

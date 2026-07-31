@@ -52,16 +52,20 @@ void main() {
     expect(whole.portionLabel, 'breast');
     expect(whole.label, '1 × breast');
 
-    // Past the end it stays on the last rung rather than running off.
-    expect(at(2000, 0).grams, 166);
+    // Past the end of whole serving, it continues stepping in bare grams without capping.
+    final uncapped = at(18 + 7 * 26, 0);
+    expect(uncapped.grams, greaterThan(166));
+    expect(uncapped.qty, isNull);
+    expect(uncapped.portionLabel, isNull);
+    expect(uncapped.label, '${uncapped.grams.round()} g');
 
-    // Up doubles, down quarters off the resting multiplier.
-    expect(at(18 + 6 * 26, -34).label, '2 × breast');
-    expect(at(18 + 6 * 26, -34).grams, 332);
-    expect(at(18 + 6 * 26, 34).qty, 0.75);
-    expect(at(18 + 6 * 26, 34).grams, 125); // 166 × 0.75, rounded
-    expect(at(18 + 6 * 26, -2000).qty, 4); // clamped to the top multiplier
-    expect(at(18 + 6 * 26, 2000).qty, 0.5); // and the bottom
+    // Down doubles, up quarters off the resting multiplier.
+    expect(at(18 + 6 * 26, 34).label, '2 × breast');
+    expect(at(18 + 6 * 26, 34).grams, 332);
+    expect(at(18 + 6 * 26, -34).qty, 0.75);
+    expect(at(18 + 6 * 26, -34).grams, 125); // 166 × 0.75, rounded
+    expect(at(18 + 6 * 26, 2000).qty, 4); // clamped to the top multiplier
+    expect(at(18 + 6 * 26, -2000).qty, 0.5); // and the bottom
   });
 
   test('a food with no serving is all grams, never a unit', () {
@@ -190,6 +194,28 @@ void main() {
     // Gain for this step drops back to 1.0x, adding 10 to virtualDx.
     tracker.update(510, timestampMs: 350);
     expect(tracker.virtualDx, closeTo(1760.0, 1e-3));
+  });
+
+  test('PortionDragTracker maintains sticky snap hysteresis on step boundaries', () {
+    final tracker = PortionDragTracker();
+    tracker.start(0, timestampMs: 0);
+
+    // Boundary from step 0 to step 1 is 18 + 1 * 26 = 44.
+    // With 6px hysteresis, dragging to 44 should remain at step 0.
+    tracker.update(44, timestampMs: 1000);
+    expect(tracker.currentStepIndex, 0);
+
+    // Dragging past 44 + 6 = 50 moves to step 1.
+    tracker.update(50, timestampMs: 2000);
+    expect(tracker.currentStepIndex, 1);
+
+    // Dragging back to 44 (within 44 - 6 = 38 threshold) remains sticky at step 1.
+    tracker.update(44, timestampMs: 3000);
+    expect(tracker.currentStepIndex, 1);
+
+    // Dropping below 38 drops back to step 0.
+    tracker.update(37, timestampMs: 4000);
+    expect(tracker.currentStepIndex, 0);
   });
 }
 

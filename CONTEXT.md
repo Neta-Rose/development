@@ -63,3 +63,10 @@ measure, helping
 A food's own defined amount, as the packet or the catalogue states it. A food
 may have none, in which case it reads as per 100 g.
 _Avoid_: portion, default amount
+
+**Timeline hour**:
+A single hour segment in the daily timeline, displaying the hour label badge,
+totals, logged entries, and an add-food tap target spanning from the hour label
+through the plus button.
+_Avoid_: hour slot, hour block, time slice
+
