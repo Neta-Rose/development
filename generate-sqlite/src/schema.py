@@ -64,7 +64,7 @@ PrepType = Literal[
     "raw", "cooked", "roasted", "baked", "boiled", "fried", "grilled",
     "steamed", "braised", "broiled", "dried", "canned", "frozen", "smoked",
     "toasted", "poached", "scrambled", "stewed", "microwaved", "sauteed",
-    "blanched", "pickled", "cured", "breaded", "drained",
+    "blanched", "pickled", "cured", "brewed", "drained",
 ]
 
 # Keep the Literal and the config enum in lockstep.

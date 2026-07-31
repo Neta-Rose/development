@@ -240,11 +240,26 @@ REVIEW_STATUSES = ("pending", "auto_approved", "needs_review", "verified", "reje
 # "cooked" is the deliberate catch-all. When grilling, boiling and baking land
 # on one macro profile they are one preparation and it is called "cooked"; the
 # specific verbs are only used when the macros actually separate them.
+#
+# "brewed" is here for the 37 records that describe brewing: without it the
+# coffee item had no honest label and was offered as "baked".
+#
+# Two labels are deliberately absent. "bottled" occurs almost only inside the
+# phrase "canned or bottled" on juices, which "canned" already covers, so
+# adding it would split one phrase across two labels on which word was read —
+# the inconsistency a closed enum exists to prevent. "breaded" adds calories,
+# which makes it identity rather than preparation, so it belongs in the food's
+# name; it was used on 3 records.
+#
+# schema.PrepType mirrors this tuple and asserts the two match on import, so a
+# label added in one place and not the other fails at import rather than in a
+# request. That assert is about the two lists agreeing, not about the absences
+# above — those are recorded here because nothing enforces them.
 PREP_TYPES = (
     "raw", "cooked", "roasted", "baked", "boiled", "fried", "grilled",
     "steamed", "braised", "broiled", "dried", "canned", "frozen", "smoked",
     "toasted", "poached", "scrambled", "stewed", "microwaved", "sauteed",
-    "blanched", "pickled", "cured", "breaded", "drained",
+    "blanched", "pickled", "cured", "brewed", "drained",
 )
 
 # --------------------------------------------------------------------------
