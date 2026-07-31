@@ -37,10 +37,14 @@ from __future__ import annotations
 
 import hashlib
 import re
+from functools import lru_cache
 
+import inflect
 import polars as pl
 
 from . import config
+
+_INFLECT = inflect.engine()
 
 # Words are letters only: digits and punctuation carry no identity ("Grade A"
 # is a grade), and stripping them is also what folds "80% lean" out of a base
@@ -53,16 +57,35 @@ _WORD_RE = re.compile(r"[a-z]+")
 _FAT_LEVEL_RE = re.compile(r"\d+(\.\d+)?\s*%\s*(lean|fat|milkfat)?")
 
 
+@lru_cache(maxsize=None)
 def _singular(word: str) -> str:
-    """Crude singularizer: 'eggs' -> 'egg', 'molasses' -> 'molasses'.
+    """Singularize one identity word: 'eggs' -> 'egg', 'potatoes' -> 'potato'.
 
-    A stemmer would be a dependency for one rule. Plural-s is the only
-    inflection that actually splits food names in this corpus, and the ss/us/is
-    guard covers the words where stripping it would be wrong.
+    This stripped a trailing "s" by hand, on the stated grounds that a stemmer
+    would be a dependency for one rule. Re-measured, that trade was wrong and
+    is reversed here: stripping the "s" makes "potatoes" into "potatoe" while
+    "potato" stays itself, so the two never meet. On the 13,694-food corpus
+    that cost 11 items — potato, jelly, maraschino cherry, sun-dried tomato,
+    hush puppy, peach and pork foot/feet among them. Swapping in ``inflect``
+    takes the corpus from 6,809 items to 6,798 and splits no existing item:
+    every merge is a plural meeting its singular.
+
+    The ss/us/is guard stays and it is the load-bearing part, not the library
+    call: unguarded, ``inflect`` maps "glass" to "glas" while "glasses" maps to
+    "glass", and it mangles asparagus, hummus, couscous and watercress. The
+    guard is narrow rather than complete — "ramen" still becomes "raman" — and
+    that is tolerable because the output need not be a real word, only the
+    *same* word for both forms of one food. So "molasses", which ends "es" and
+    so runs past the guard, folding to "molass" is fine: no other form of it
+    exists in the corpus, and nothing else folds onto it.
+
+    Memoized because it runs once per word per identity: 39.4k calls over 2.3k
+    distinct words, which is 4.4 s of Stage 3b against 1.0 s memoized, on a
+    stage the README budgets at ~2 s.
     """
-    if len(word) >= 4 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
-        return word[:-1]
-    return word
+    if len(word) < 4 or word.endswith(("ss", "us", "is")):
+        return word
+    return _INFLECT.singular_noun(word) or word
 
 
 def base_key(base_name: str | None) -> str:

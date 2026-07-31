@@ -677,6 +677,30 @@ def test_base_key_absorbs_the_ways_a_name_can_be_written():
     assert key(None) == key("") == ""
 
 
+def test_base_key_folds_plurals_including_the_irregular_ones():
+    """The pairs the hand-rolled trailing-s rule split, and the words the
+    ss/us/is guard is what saves — see :func:`cluster._singular`."""
+    key = cluster.base_key
+    for singular, plural in [
+        ("potato", "potatoes"), ("jelly", "jellies"), ("pork foot", "pork feet"),
+        ("maraschino cherry", "maraschino cherries"),
+        ("sun-dried tomato", "sun-dried tomatoes"), ("hush puppy", "hush puppies"),
+        ("leaf", "leaves"), ("loaf", "loaves"), ("knife", "knives"),
+        # the guard's own pair: unguarded, inflect reads "glass" as a plural
+        ("glass", "glasses"),
+    ]:
+        assert key(singular) == key(plural), f"{singular} != {plural}"
+
+    # words that only look plural: the guard holds them, where unguarded inflect
+    # would read asparagus as a plural of "asparagu"
+    for word in ["asparagus", "hummus", "couscous", "watercress", "bass"]:
+        assert key(word) == word
+
+    # "molasses" is past the guard and folds to "molass". The function only owes
+    # one string per food, not a real word, and molasses has no other form here.
+    assert key("molasses") == key("molass")
+
+
 def test_items_group_on_identity_not_on_macros():
     """The reported cross-database miss: the same food recorded twice with
     macros 0.30 apart on the simplex used to be two items. Identity is textual,
