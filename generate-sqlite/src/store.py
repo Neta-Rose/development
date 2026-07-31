@@ -838,20 +838,24 @@ def apply_canonicalization(
     the stage overwrites, which is the point — a fixed prompt is applied by
     deleting these columns and running again.
 
-    ``base_key`` is derived here rather than stored by the caller, so the one
-    normalization that clustering depends on cannot drift between the writer
-    and the reader.
+    ``base_key`` and ``prep_label`` are derived here rather than stored as the
+    caller handed them over, so the two normalizations clustering depends on
+    cannot drift between the writer and the reader. This is the only writer of
+    either column, which is what makes ``cluster.prep_label`` unbypassable, and
+    it is why the guard lives in cluster.py: reaching it from here means store
+    imports it, and canon.py already imports store.
     """
     from . import cluster  # local: cluster imports store for its own run()
 
     base_key = cluster.base_key(base_name)
     row = con.execute(
-        "SELECT base_name, food_kind, prep_label, source_version FROM foods "
+        "SELECT base_name, food_kind, prep_label, source_version, description FROM foods "
         "WHERE fdc_id = ?", [fdc_id]
     ).fetchone()
     if row is None:
         return
     old = dict(zip(("base_name", "food_kind", "prep_label", "source_version"), row))
+    prep_label = cluster.prep_label(prep_label, row[4], base_name, food_kind)
     for field, new in (("base_name", base_name), ("food_kind", food_kind),
                        ("prep_label", prep_label)):
         if old[field] != new:

@@ -142,7 +142,12 @@ Stage 3b-1 reads each USDA row and answers three questions about it:
   foods and is **never** a preparation of one of them: fried rice is not a
   preparation of rice, an omelet is not a preparation of egg.
 * **`prep_label`** — how *this* record was prepared, read off the text, or
-  null when the description does not say.
+  null when the description does not say. Not purely the model's: on the way
+  in, `cluster.prep_label()` corrects the two mistakes it makes systematically
+  — `cooked` where the description names exactly one method, and nothing where
+  an ingredient's description says `raw`/`unprepared`/`uncooked`. 328 records
+  on the shipped corpus; it declines everywhere else, and like `base_key` it is
+  derived by the write path so no future writer can skip it.
 
 Foods go out ~40 per request, ordered by the first word of the description and
 then by the description itself. **The batch is the consistency mechanism, not a

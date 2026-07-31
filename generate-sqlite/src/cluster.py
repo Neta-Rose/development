@@ -116,6 +116,70 @@ def base_key(base_name: str | None) -> str:
     return " ".join(words)
 
 
+_RAW_WORDS = frozenset({"raw", "unprepared", "uncooked"})
+
+
+def prep_label(
+    prep: str | None, description: str | None, base_name: str | None, food_kind: str | None
+) -> str | None:
+    """Correct the two preparation mistakes Stage 3b-1 makes systematically.
+
+    A twin of :func:`base_key`: pure, no database, called by
+    ``store.apply_canonicalization`` to derive a stored column, so no write path
+    can bypass it. Measured on the 13,694-food corpus it moves 328 records — 145
+    off ``cooked`` onto the label their own description states, 183 off nothing
+    onto ``raw`` — and leaves the other 13,366 exactly as the model wrote them.
+    The spec's figure for the second branch was 187; the four it declines are
+    records the model wrote "raw cranberries" and "raw vegetable" for, where the
+    state word IS the identity it was given, and declining on them is the third
+    limit below doing its job rather than a shortfall.
+
+    It fires in two situations and declines everywhere else. Three limits are
+    what make it safe:
+
+    * **It only ever replaces ``cooked`` or nothing.** A specific label the
+      model already chose is never overridden, so the cases text alone gets
+      wrong are never reached: "roast" as a cut name, "frozen" versus
+      "microwaved" precedence, "dry" versus "dried", "kippered". Deriving
+      preparation wholly from text was measured at 777 records changed and 786
+      wrongly emptied; this is the subset that is unambiguous.
+      The blank branch is the one place where that limit is thinner than it
+      reads, because "nothing" is not a choice: 41 of its 183 hits also state
+      ``frozen`` or ``dried`` ("Asparagus, frozen, unprepared"), and they take
+      ``raw``. That is the stated rule — an unprepared food IS raw, and the
+      alternative is precedence between two text signals, which is the thing
+      measured at 786 wrong answers.
+    * **Exactly one named child, or it declines.** "Chicken breast, baked,
+      broiled, or roasted" keeps ``cooked``, which is the right answer and what
+      the catch-all label exists for.
+    * **The food's own identity is subtracted from its description**, which is
+      what stops "fried rice" being relabelled ``fried``. That reuses the
+      model's identity judgment rather than re-deriving it — "words that are
+      part of the dish's NAME even though they look like cooking" is already a
+      rule in the canon.py prompt.
+
+    The subtraction compares raw words, NOT :func:`base_key` output: base_key
+    singularizes through ``inflect``, and a cooking participle put through a
+    noun singularizer no longer matches the enum label it has to be looked up
+    by. Both sides use the same plain split, so the symmetry that makes the
+    subtraction work is kept without touching the labels.
+
+    ``fresh`` is deliberately not read as ``raw`` — it produces "Cheese, fresh,
+    queso fresco" and "Pasta, fresh-refrigerated", which are not raw foods — and
+    the phrase "from raw" is excluded because it says what a *cooked* food was
+    made from.
+    """
+    text = (description or "").lower()
+    stated = set(_WORD_RE.findall(text)) - set(_WORD_RE.findall((base_name or "").lower()))
+    if prep == "cooked":
+        named = {p for p in stated if config.PREP_PARENT.get(p) == prep}
+        return named.pop() if len(named) == 1 else prep
+    if (prep is None and food_kind == "ingredient" and "from raw" not in text
+            and _RAW_WORDS & stated):
+        return "raw"
+    return prep
+
+
 def _prep_vector(macros: tuple[float, float, float], variable_fat: bool) -> tuple[float, ...]:
     """What the preparation split compares — per 100 g, or per 100 g of lean.
 

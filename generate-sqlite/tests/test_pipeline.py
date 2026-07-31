@@ -701,6 +701,57 @@ def test_base_key_folds_plurals_including_the_irregular_ones():
     assert key("molasses") == key("molass")
 
 
+def test_prep_label_corrects_the_two_systematic_mistakes():
+    """The 328 records the guard moves. Descriptions are real corpus rows."""
+    guard = cluster.prep_label
+    # 145 records: the model answered "cooked" and the description names the
+    # method. fdc_id 168408, the reported case.
+    assert guard("cooked", "Cress, garden, cooked, boiled, drained, without salt",
+                 "cress", "ingredient") == "boiled"
+    # 183 records: an ingredient the model left blank whose description states
+    # the state it is in. All three words mean the same state.
+    for desc in ("Raspberries, raw", "Onion rings, breaded, par fried, frozen, unprepared",
+                 "Egg, whole, uncooked"):
+        assert guard(None, desc, "food", "ingredient") == "raw"
+
+
+def test_prep_label_declines_wherever_the_evidence_is_ambiguous():
+    """The three limits that make the guard safe. Each is a decline."""
+    guard = cluster.prep_label
+    # Several children named: "cooked" is the honest answer and what the
+    # catch-all exists for. fdc_id 2705955.
+    assert guard("cooked", "Chicken breast, baked, broiled, or roasted, skin eaten, "
+                 "from raw", "chicken breast", "ingredient") == "cooked"
+    # "from raw" says what a cooked food was MADE from. fdc_id 169410.
+    assert guard(None, "Seeds, sesame butter, tahini, from raw and stone ground kernels",
+                 "sesame butter", "ingredient") is None
+    # A food named for its method: subtracting the identity is what stops the
+    # relabel, on both branches. fdc_ids 173731 and 2709763.
+    assert guard("cooked", "Beans, baked, home prepared", "baked beans",
+                 "ingredient") == "cooked"
+    assert guard(None, "Raw vegetable, not further specified", "raw vegetable",
+                 "ingredient") is None
+    # A specific method the model chose is never overridden, so the cases text
+    # alone gets wrong ("roast" as a cut, frozen-vs-microwaved) are never reached.
+    assert guard("frozen", "Peas, frozen, cooked, boiled, drained", "peas",
+                 "ingredient") == "frozen"
+    assert guard("smoked", "Fish, salmon, smoked, raw", "salmon", "ingredient") == "smoked"
+    # "fresh" is not "raw": it produces "Cheese, fresh, queso fresco".
+    assert guard(None, "Cheese, fresh, queso fresco", "queso fresco", "ingredient") is None
+    # ... and a dish is left alone, however its description reads.
+    assert guard(None, "Salad, raw vegetable, with dressing", "vegetable salad",
+                 "dish") is None
+
+
+def test_the_prep_guard_is_on_the_write_path_not_in_the_model_pass(con):
+    """So no future write path can bypass it: canon.py hands over what the
+    model said, and what lands on the row is the corrected label."""
+    canonicalize(con, {2: ("avocado", "ingredient", None)})   # "Avocado, raw"
+    assert con.execute(
+        "SELECT prep_label FROM foods WHERE fdc_id = 2"
+    ).fetchone() == ("raw",), "the model said nothing; the description says raw"
+
+
 def test_items_group_on_identity_not_on_macros():
     """The reported cross-database miss: the same food recorded twice with
     macros 0.30 apart on the simplex used to be two items. Identity is textual,
