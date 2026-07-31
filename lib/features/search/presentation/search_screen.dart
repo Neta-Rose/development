@@ -598,6 +598,9 @@ class _ResultRowState extends State<_ResultRow> {
   }
 
   Widget _content(FoodHit food, Portion shown) {
+    final singlePrepPill = widget.food.preps.isEmpty &&
+        food.prepLabel != null &&
+        food.prepLabel != 'raw';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       child: Row(
@@ -613,7 +616,7 @@ class _ResultRowState extends State<_ResultRow> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(food.displayName,
+                Text(food.name,
                     style: const TextStyle(fontSize: 13, color: AppColors.fg)),
                 const SizedBox(height: 3),
                 macroLine(
@@ -647,6 +650,9 @@ class _ResultRowState extends State<_ResultRow> {
                 if (hadPad) widget.onEdit(_food);
               },
             ),
+          ] else if (singlePrepPill) ...[
+            const SizedBox(width: 10),
+            _SinglePrepPill(label: food.prepLabel!),
           ],
         ],
       ),
@@ -809,3 +815,36 @@ class _PrepWheelState extends State<_PrepWheel> {
     );
   }
 }
+
+class _SinglePrepPill extends StatelessWidget {
+  const _SinglePrepPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      height: prepRowPx,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: .07),
+        border: Border.all(color: AppColors.amber.withValues(alpha: .4)),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          maxLines: 1,
+          style: const TextStyle(
+            fontSize: 9.5,
+            letterSpacing: 0.2,
+            fontWeight: FontWeight.w600,
+            color: AppColors.amber,
+          ),
+        ),
+      ),
+    );
+  }
+}
+

@@ -232,12 +232,33 @@ class CatalogRepository {
 
     return [
       for (final hit in hits)
-        if (hit.ref case CatalogRef(:final id)
-            when (byItem[id]?.length ?? 0) > 1)
-          _asPreparations(hit, byItem[id]!, id)
+        if (hit.ref case CatalogRef(:final id))
+          if ((byItem[id]?.length ?? 0) > 1)
+            _asPreparations(hit, byItem[id]!, id)
+          else if (byItem[id]?.length == 1)
+            _withSinglePrepLabel(hit, byItem[id]!.single)
+          else
+            hit
         else
           hit,
     ];
+  }
+
+  FoodHit _withSinglePrepLabel(FoodHit hit, QueryRow row) {
+    final prep = row.readNullable<String>('prep_type');
+    if (prep == null) return hit;
+    return FoodHit(
+      name: hit.name,
+      ref: hit.ref,
+      emoji: hit.emoji,
+      kcal100g: hit.kcal100g,
+      protein100g: hit.protein100g,
+      fat100g: hit.fat100g,
+      carb100g: hit.carb100g,
+      servingG: hit.servingG,
+      servingLabel: hit.servingLabel,
+      prepLabel: prep,
+    );
   }
 
   /// [hit] rebuilt as its own preparation, carrying [rows] as the rest.

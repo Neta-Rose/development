@@ -250,10 +250,11 @@ void main() {
     expect(onion.preps.every((p) => p.ref is CatalogRef && p.preps.isEmpty),
         isTrue);
 
-    // A single-preparation item gets no wheel and no composed name.
+    // A single-preparation item carries its prepLabel from prep_type (e.g. 'cooked'), and has preps empty (no wheel).
     final one = (await catalog.search('onion')).firstWhere((h) => h.preps.isEmpty);
-    expect(one.prepLabel, null);
-    expect(one.displayName, one.name);
+    expect(one.preps, isEmpty);
+    expect(one.prepLabel, 'cooked');
+    expect(one.displayName, '${one.name} · cooked');
   });
 
   test('a logged preparation names itself, so the timeline can tell two apart',

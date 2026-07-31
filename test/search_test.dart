@@ -215,7 +215,8 @@ void main() {
 
     // At rest: the default preparation, named, at its own serving.
     // 44 kcal/100 g × 210 g = 92.
-    expect(find.text('Onion · boiled'), findsOneWidget);
+    expect(find.text('Onion'), findsOneWidget);
+    expect(find.text('boiled'), findsOneWidget);
     expect(find.text('1 × cup (210 g)'), findsOneWidget);
     expect(find.textContaining('92 kcal', findRichText: true), findsOneWidget);
 
@@ -233,15 +234,63 @@ void main() {
 
     // The whole food moved, not just the label: macros, serving and name.
     // 40 kcal/100 g × 160 g = 64.
-    expect(find.text('Onion · raw'), findsOneWidget);
-    expect(find.text('Onion · boiled'), findsNothing);
+    expect(find.text('Onion'), findsOneWidget);
+    expect(find.text('raw'), findsOneWidget);
     expect(find.text('1 × cup, chopped (160 g)'), findsOneWidget);
     expect(find.textContaining('64 kcal', findRichText: true), findsOneWidget);
 
     // And it is the raw onion that gets staged, not the item's default.
-    await _swipeToStage(tester, find.text('Onion · raw'));
+    await _swipeToStage(tester, find.text('Onion'));
     expect(find.byType(Dismissible), findsOneWidget);
-    expect(find.text('Onion · raw'), findsNWidgets(2)); // row and chip
+    expect(find.text('Onion · raw'), findsOneWidget); // chip
+  });
+
+  testWidgets('single preparation non-raw item shows static preparation pill, raw/null hides pill',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    _ignoreOverflow();
+
+    const singleCooked = FoodHit(
+      name: 'Rice',
+      ref: CatalogRef(100),
+      kcal100g: 130,
+      prepLabel: 'cooked',
+    );
+    const singleRaw = FoodHit(
+      name: 'Apple',
+      ref: CatalogRef(101),
+      kcal100g: 52,
+      prepLabel: 'raw',
+    );
+    const singleNull = FoodHit(
+      name: 'Banana',
+      ref: CatalogRef(102),
+      kcal100g: 89,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith(
+              (ref) async => [singleCooked, singleRaw, singleNull]),
+        ],
+        child: const MaterialApp(home: SearchScreen()),
+      ),
+    );
+    await tester.pump();
+
+    // Single non-raw item shows static preparation pill 'cooked' without chevrons
+    expect(find.text('cooked'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
+
+    // Single raw item or null prep item does not show preparation pill
+    expect(find.text('raw'), findsNothing);
+    expect(find.text('Rice'), findsOneWidget);
+    expect(find.text('Apple'), findsOneWidget);
+    expect(find.text('Banana'), findsOneWidget);
   });
 
   testWidgets('a new result set does not inherit the last row\'s spin',
@@ -284,7 +333,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
       await tester.pump(const Duration(milliseconds: 300));
     }
-    expect(find.text('Onion · frozen'), findsOneWidget);
+    expect(find.text('frozen'), findsOneWidget);
 
     // The next query puts a shorter wheel in the same list slot. A row that
     // kept the old index would open on the wrong preparation — or, at index 2
@@ -293,8 +342,8 @@ void main() {
     // One frame for the results future, one to land the wheel.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Onion · boiled'), findsOneWidget);
-    expect(find.text('Onion · frozen'), findsNothing);
+    expect(find.text('boiled'), findsOneWidget);
+    expect(find.text('frozen'), findsNothing);
   });
 
   testWidgets('quick add stages the 4·4·9 total', (tester) async {
