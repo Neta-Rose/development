@@ -1,0 +1,8 @@
+# The image needs go.mod and *.go and nothing else. Everything here either leaks
+# (.env) or just inflates the build context.
+.env*
+README.md
+plated
+plated.exe
+Dockerfile
+.dockerignore

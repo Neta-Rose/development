@@ -54,6 +54,21 @@ app.*.map.json
 /server/plated
 /server/plated.exe
 
+# infra: provider downloads, plan files, and state. The app stack's state lives in S3;
+# the bootstrap stack's is local and disposable — but it still names IAM roles and the
+# state bucket, so it is not committed either.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+# Real values belong in GitHub secrets or a local file, never in git. The `.example` is
+# the documented template, same arrangement as server/.env.example.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
 # generate-sqlite: pipeline data. The DuckDB is the source of truth but is a
 # local artifact — the only output that ships is database/foods.sqlite, which
 # Stage 7 writes there directly and which *is* tracked.

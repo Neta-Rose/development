@@ -1,0 +1,199 @@
+name: Flutter release
+
+# Ships the Android app through Shorebird: a patch when the version in pubspec.yaml already
+# has a release, a full release when it does not.
+#
+# The two paths are never substituted for each other. If a patch fails, the job fails —
+# falling back to a release would collide on the version, and the actual fix is a
+# pubspec.yaml version bump.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'auto picks patch or release from the current version; the others force one'
+        type: choice
+        options: [auto, patch, release]
+        default: auto
+  push:
+    tags: ['v*']
+
+# Never let two Shorebird publishes for the same app run concurrently.
+concurrency:
+  group: flutter-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # attaching artifacts to a GitHub Release on tag pushes
+
+env:
+  FLUTTER_VERSION: 3.44.6
+  SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 17 matches the sourceCompatibility and kotlin jvmTarget in
+      # android/app/build.gradle.kts. A newer JDK fails the Gradle build.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # No flutter-action here: Shorebird vends its own Flutter, and a second SDK on PATH
+      # is how you end up with a patch built against a different revision than its release.
+      - uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
+      - name: Write signing config
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Without it the build falls back"
+            echo "::error::to debug keys, producing an artifact that cannot be shipped or upgraded."
+            exit 1
+          fi
+          # Both paths are already gitignored by android/.gitignore.
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Read version and decide mode
+        id: decide
+        run: |
+          set -uo pipefail
+
+          version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)
+          if [ -z "$version" ]; then
+            echo "::error::could not read version from pubspec.yaml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          requested='${{ inputs.mode }}'
+          # Tag pushes carry no inputs.
+          [ -z "$requested" ] && requested=auto
+
+          if [ "$requested" != auto ]; then
+            echo "mode=$requested" >> "$GITHUB_OUTPUT"
+            echo "$version: mode forced to $requested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # A release for this exact version means the only legal move is a patch: Shorebird
+          # rejects a second release of the same version.
+          if releases=$(shorebird releases list 2>&1); then
+            if grep -qF -- "$version" <<<"$releases"; then
+              mode=patch
+            else
+              mode=release
+            fi
+          else
+            # Do not guess. Picking release when one exists errors on the duplicate; picking
+            # patch when none exists errors too — but silently choosing wrong here would look
+            # like a Shorebird bug rather than a CLI change, so surface it instead.
+            echo "::error::'shorebird releases list' failed, so patch-vs-release cannot be"
+            echo "::error::determined. Re-run with the mode input set explicitly. Output was:"
+            echo "$releases"
+            exit 1
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "\`$version\` → **$mode**" >> "$GITHUB_STEP_SUMMARY"
+
+      # Compile-time config, identical on both paths below.
+      #
+      # This matters more than it looks: plateApiUrl/plateApiToken are
+      # String.fromEnvironment constants (lib/core/ai/plate_api_config.dart), and a patch
+      # replaces compiled Dart. Patch without these and AI logging silently disappears from
+      # a build that shipped with it — plateApiConfigured goes false and the mode is hidden.
+      # Empty values are legal and mean "feature off", so unset secrets degrade rather than fail.
+      - name: Assemble dart-defines
+        id: defines
+        env:
+          PLATE_API_URL: ${{ secrets.PLATE_API_URL }}
+          PLATE_API_TOKEN: ${{ secrets.PLATE_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          # Only dart-defines go after the `--` separator — shorebird#2371 breaks when build
+          # flags like --target-platforms are passed there.
+          printf 'value=-- --dart-define=PLATE_API_URL=%s --dart-define=PLATE_API_TOKEN=%s --dart-define=SUPABASE_URL=%s --dart-define=SUPABASE_ANON_KEY=%s\n' \
+            "$PLATE_API_URL" "$PLATE_API_TOKEN" "$SUPABASE_URL" "$SUPABASE_ANON_KEY" >> "$GITHUB_OUTPUT"
+
+      # --artifact apk emits both an APK and an AAB: the APK is the installable people can
+      # actually sideload from the artifact zip, the AAB is the Play upload.
+      #
+      # Deliberately no --allow-asset-diffs: database/foods.sqlite ships as a bundled asset,
+      # and Shorebird patches Dart code, not assets. A rebuilt catalog therefore cannot reach
+      # devices as a patch, and per CLAUDE.md needs a catalogVersion bump and a real release.
+      # Letting the patch fail on the asset diff is the correct outcome, not an inconvenience.
+      - name: Release
+        id: release
+        if: steps.decide.outputs.mode == 'release'
+        uses: shorebirdtech/shorebird-release@v1
+        with:
+          platform: android
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          args: --artifact apk ${{ steps.defines.outputs.value }}
+
+      - name: Patch
+        id: patch
+        if: steps.decide.outputs.mode == 'patch'
+        uses: shorebirdtech/shorebird-patch@v1
+        with:
+          platform: android
+          release-version: ${{ steps.decide.outputs.version }}
+          args: ${{ steps.defines.outputs.value }}
+
+      # Only the release path produces a new installable. A patch is delivered over the air
+      # and the corresponding release's APK is unchanged, so there is nothing new to publish —
+      # use mode=release (after a version bump) when a fresh download is what you want.
+      - name: Upload artifacts
+        if: steps.decide.outputs.mode == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthapp-${{ steps.decide.outputs.version }}
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') && steps.decide.outputs.mode == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/bundle/release/app-release.aab
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "| | |"
+            echo "|---|---|"
+            echo "| version | \`${{ steps.decide.outputs.version }}\` |"
+            echo "| mode | ${{ steps.decide.outputs.mode }} |"
+            echo "| patch number | ${{ steps.patch.outputs.patch-number || '—' }} |"
+            echo "| release version | ${{ steps.release.outputs.release-version || '—' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

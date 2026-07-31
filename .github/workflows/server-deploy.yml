@@ -1,0 +1,150 @@
+name: Deploy server
+
+# Builds server/ into an arm64 container image, pushes it to ECR, and applies the Terraform
+# app stack against that exact image tag.
+#
+# Pull requests are not handled here on purpose: they get `terraform validate` in ci.yml,
+# which needs no credentials. The deploy role's trust policy admits only refs/heads/main, so
+# a PR cannot reach AWS even if a workflow file in it asks to.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'infra/terraform/app/**'
+      - '.github/workflows/server-deploy.yml'
+  workflow_dispatch:
+
+# Two applies racing on one state file would just fight over the lock.
+concurrency:
+  group: server-deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC: the only credential in play, minted per run
+  contents: read
+
+env:
+  TERRAFORM_VERSION: 1.14.3
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Re-run the server's own checks before shipping. They are offline and take seconds,
+      # and a workflow_dispatch can otherwise deploy a commit CI never saw.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: server/go.mod
+
+      - name: Test
+        working-directory: server
+        run: go vet ./... && go test ./...
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # Created by the bootstrap stack. If this fails, that stack has not been applied — see
+      # docs/DEPLOY.md.
+      - name: Resolve ECR repository
+        id: repo
+        env:
+          NAME: healthapp-plated
+        run: |
+          set -euo pipefail
+          if ! url=$(aws ecr describe-repositories --repository-names "$NAME" \
+                       --query 'repositories[0].repositoryUri' --output text 2>&1); then
+            echo "::error::ECR repository '$NAME' not found. Apply infra/terraform/bootstrap first."
+            echo "$url"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # No QEMU setup step: server/Dockerfile pins its builder stage to $BUILDPLATFORM and
+      # cross-compiles with GOARCH=arm64, so the only arm64 layer is the final one and
+      # nothing foreign executes during the build.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.repo.outputs.url }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Required, not tidiness: with provenance on, buildx pushes an image *index* with an
+          # extra attestation manifest, and Lambda accepts only a single-architecture manifest.
+          # Leaving it on fails at CreateFunction with an unhelpful "manifest ... not supported".
+          provenance: false
+
+      - name: Terraform init
+        working-directory: infra/terraform/app
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
+            -backend-config="region=${{ secrets.AWS_REGION }}"
+
+      - name: Terraform apply
+        working-directory: infra/terraform/app
+        env:
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_lambda_exec_role_arn: ${{ secrets.AWS_LAMBDA_EXEC_ROLE }}
+          # Lambda cannot resolve a secret ARN into an env var the way ECS can, so these
+          # values pass through Terraform and land in remote state. That is why the state
+          # bucket is private, encrypted and versioned. PLATE_API_TOKEN is the same secret
+          # the Flutter workflow bakes in as a dart-define — one source of truth for both.
+          TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          TF_VAR_plate_api_token: ${{ secrets.PLATE_API_TOKEN }}
+        run: |
+          terraform plan -input=false -out=tfplan
+          terraform apply -input=false -auto-approve tfplan
+
+      # Proves the deploy is actually serving, not merely that the API calls returned.
+      # /healthz answers 200 even unconfigured, so the assertion is on the body: configured
+      # false here means OPENROUTER_API_KEY never made it into the function's environment.
+      - name: Smoke test
+        working-directory: infra/terraform/app
+        run: |
+          set -euo pipefail
+          url=$(terraform output -raw function_url)
+          echo "endpoint: $url"
+
+          body=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "${url%/}/healthz")
+          echo "$body"
+
+          if ! grep -q '"status":"ok"' <<<"$body"; then
+            echo "::error::/healthz did not report ok"
+            exit 1
+          fi
+          if ! grep -q '"configured":true' <<<"$body"; then
+            echo "::error::server reports configured=false — OPENROUTER_API_KEY is missing from"
+            echo "::error::the Lambda environment. Detection will return 503 not_configured."
+            exit 1
+          fi
+
+          {
+            echo "### Deployed"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| endpoint | \`${url%/}\` |"
+            echo "| image tag | \`${{ github.sha }}\` |"
+            echo ""
+            echo "\`$body\`"
+          } >> "$GITHUB_STEP_SUMMARY"
