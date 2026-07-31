@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -325,7 +326,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
             Text(
-              item.food.name,
+              item.food.displayName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 8.5, color: _dim(.6)),
@@ -373,13 +374,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
           );
         }
-        final food = hits[i - 1];
+        // The row hands back which food it is on: spinning its preparation
+        // wheel swaps the hit under it, and boiled onion is not raw onion.
         return _ResultRow(
-          food: food,
-          onAdd: (portion) =>
+          food: hits[i - 1],
+          editing: _editing,
+          onAdd: (food, portion) =>
               ref.read(batchProvider.notifier).add(BatchItem(food, portion)),
-          onOpen: () => _openDetail(food),
-          onEdit: () {
+          onOpen: _openDetail,
+          onEdit: (food) {
             setState(() => _editing = food);
             FocusScope.of(context).unfocus();
           },
@@ -463,18 +466,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 /// The horizontal recognizer reads both axes off `globalPosition` — its own
 /// `delta` carries the primary axis only — so a vertical drag still scrolls the
 /// list until a horizontal one wins the arena.
+///
+/// An item with more than one preparation also carries a wheel. Spinning it
+/// replaces the whole food the row stands for — its macros, its serving, its
+/// swipe ladder and what a tap opens — because each preparation is its own
+/// catalog food.
 class _ResultRow extends StatefulWidget {
   const _ResultRow({
     required this.food,
+    required this.editing,
     required this.onAdd,
     required this.onOpen,
     required this.onEdit,
   });
 
   final FoodHit food;
-  final void Function(Portion) onAdd;
-  final VoidCallback onOpen;
-  final VoidCallback onEdit;
+
+  /// The food the portion pad is open on, so a row that spins while it is *its*
+  /// pad can carry it to the new preparation instead of leaving it amounting a
+  /// food no longer on screen.
+  final FoodHit? editing;
+  final void Function(FoodHit, Portion) onAdd;
+  final void Function(FoodHit) onOpen;
+  final void Function(FoodHit) onEdit;
 
   @override
   State<_ResultRow> createState() => _ResultRowState();
@@ -484,18 +498,26 @@ class _ResultRowState extends State<_ResultRow> {
   Offset _start = Offset.zero;
   Offset _delta = Offset.zero;
 
+  /// Which preparation the wheel rests on. Starts on the item's default, which
+  /// is the food the hit itself already describes.
+  late int _prep = widget.food.prepIndex;
+
+  /// The food this row currently stands for.
+  FoodHit get _food =>
+      widget.food.preps.isEmpty ? widget.food : widget.food.preps[_prep];
+
   Portion? get _picked => portionForDrag(
         _delta.dx,
         _delta.dy,
-        unitG: widget.food.unitG,
-        unitLabel: widget.food.unitLabel,
+        unitG: _food.unitG,
+        unitLabel: _food.unitLabel,
       );
 
   void _reset() => setState(() => _delta = Offset.zero);
 
   @override
   Widget build(BuildContext context) {
-    final food = widget.food;
+    final food = _food;
     final picked = _picked;
     // Before a drag the row reads as one serving, which is also what the
     // detail screen opens on.
@@ -504,7 +526,7 @@ class _ResultRowState extends State<_ResultRow> {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: widget.onOpen,
+      onTap: () => widget.onOpen(food),
       onHorizontalDragStart: (d) => setState(() {
         _start = d.globalPosition;
         _delta = Offset.zero;
@@ -512,7 +534,7 @@ class _ResultRowState extends State<_ResultRow> {
       onHorizontalDragUpdate: (d) =>
           setState(() => _delta = d.globalPosition - _start),
       onHorizontalDragEnd: (_) {
-        if (picked != null) widget.onAdd(picked);
+        if (picked != null) widget.onAdd(food, picked);
         _reset();
       },
       onHorizontalDragCancel: _reset,
@@ -585,7 +607,7 @@ class _ResultRowState extends State<_ResultRow> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(food.name,
+                Text(food.displayName,
                     style: const TextStyle(fontSize: 13, color: AppColors.fg)),
                 const SizedBox(height: 3),
                 macroLine(
@@ -599,6 +621,27 @@ class _ResultRowState extends State<_ResultRow> {
               ],
             ),
           ),
+          if (widget.food.preps.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            _PrepWheel(
+              preps: widget.food.preps,
+              index: _prep,
+              onPick: (i) {
+                final hadPad = identical(widget.editing, _food);
+                // The new preparation brings its own serving, so the ladder
+                // starts over rather than carrying a half-finished swipe of the
+                // old food's grams.
+                setState(() {
+                  _prep = i;
+                  _delta = Offset.zero;
+                });
+                // Re-keys the pad on the new food, which resets the amount
+                // typed into it — the old grams were an amount of the old
+                // serving.
+                if (hadPad) widget.onEdit(_food);
+              },
+            ),
+          ],
         ],
       ),
     );
@@ -608,7 +651,7 @@ class _ResultRowState extends State<_ResultRow> {
   /// the arena against the row's, so tapping it doesn't also stage a serving.
   Widget _pill(FoodHit food) {
     return GestureDetector(
-      onTap: widget.onEdit,
+      onTap: () => widget.onEdit(food),
       child: Container(
         // Vertical padding rather than a height: a Container with an alignment
         // grows to its constraints, and this one has to hug its text.
@@ -629,5 +672,123 @@ class _ResultRowState extends State<_ResultRow> {
     final label = food.unitLabel;
     final g = food.unitG.round();
     return label == null ? '$g g' : '1 × $label ($g g)';
+  }
+}
+
+/// The preparation wheel: one label deep, spun by dragging it or tapped for the
+/// next one. Shown only where there is a choice to make, which is 830 of the
+/// catalogue's 6,809 items.
+///
+/// Its own recognizer wins the arena against both the list's scroll and the
+/// row's swipe, because the innermost one in the tree claims the pointer first.
+/// `DragStartBehavior.down` measures from where the finger landed rather than
+/// from where the drag was recognised, so the 18 px of touch slop counts towards
+/// the spin instead of being spent before it starts.
+class _PrepWheel extends StatefulWidget {
+  const _PrepWheel({
+    required this.preps,
+    required this.index,
+    required this.onPick,
+  });
+
+  final List<FoodHit> preps;
+  final int index;
+  final void Function(int) onPick;
+
+  @override
+  State<_PrepWheel> createState() => _PrepWheelState();
+}
+
+class _PrepWheelState extends State<_PrepWheel> {
+  double _startY = 0;
+  double _dy = 0;
+  bool _dragging = false;
+
+  void _end() {
+    widget.onPick(prepForDrag(_dy, widget.index, widget.preps.length));
+    setState(() {
+      _dragging = false;
+      _dy = 0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The list may lead the finger by most of a row, but never by a whole one:
+    // past that the label being dragged towards would leave the window before it
+    // has been chosen.
+    final dy = _dy.clamp(-prepRowPx * 0.9, prepRowPx * 0.9);
+
+    return GestureDetector(
+      dragStartBehavior: DragStartBehavior.down,
+      onTap: () =>
+          widget.onPick(prepForDrag(0, widget.index, widget.preps.length)),
+      onVerticalDragStart: (d) => setState(() {
+        _dragging = true;
+        _startY = d.globalPosition.dy;
+        _dy = 0;
+      }),
+      onVerticalDragUpdate: (d) =>
+          setState(() => _dy = d.globalPosition.dy - _startY),
+      onVerticalDragEnd: (_) => _end(),
+      onVerticalDragCancel: () => setState(() {
+        _dragging = false;
+        _dy = 0;
+      }),
+      child: Container(
+        width: 92,
+        height: prepRowPx,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: AppColors.amber.withValues(alpha: .07),
+          border: Border.all(color: AppColors.amber.withValues(alpha: .4)),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Stack(
+          children: [
+            AnimatedPositioned(
+              // No transition while the finger is down: the list has to track
+              // it, not chase it.
+              duration:
+                  _dragging ? Duration.zero : const Duration(milliseconds: 220),
+              curve: const Cubic(0.2, 0.8, 0.3, 1),
+              left: 0,
+              right: 0,
+              top: -widget.index * prepRowPx + dy,
+              child: Column(
+                children: [
+                  for (final (i, prep) in widget.preps.indexed)
+                    SizedBox(
+                      height: prepRowPx,
+                      child: Center(
+                        child: Text(
+                          prep.prepLabel ?? '',
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            letterSpacing: 0.2,
+                            fontWeight: i == widget.index
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            color:
+                                i == widget.index ? AppColors.amber : _dim(.4),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Positioned(
+              right: 5,
+              top: 0,
+              bottom: 0,
+              child: Icon(Icons.unfold_more,
+                  size: 11, color: AppColors.amber.withValues(alpha: .5)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

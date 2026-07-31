@@ -36,6 +36,16 @@ unsaved food alike, so the results list has a single row type. Recently logged
 foods are also hits.
 _Avoid_: result, match, search item
 
+**Item**:
+A food as a user recognizes it — one row in the search list, however many
+catalogue records stand behind it. Chicken thigh is one item, not 56.
+_Avoid_: merged food, group, family
+
+**Preparation**:
+One way a food is prepared — raw, boiled, roasted. An item has one or more; each
+is a catalog food in its own right, with its own macros, serving and measures.
+_Avoid_: variant, prep type, cooking method
+
 ### Logging
 
 **Batch**:

@@ -220,8 +220,64 @@ void main() {
     // bm25 alone put "Spinach pasta" first: every hit scores within 0.2 of
     // every other, so the winner was document-length noise. Commonness is the
     // signal that separates them.
-    expect(rankOf('cooked pasta'), isNonNegative);
-    expect(rankOf('cooked pasta'), lessThan(rankOf('spinach pasta')));
+    //
+    // Plain pasta is one item with a `cooked` preparation now, not an item
+    // called "Cooked pasta" — so the name to look for is the bare one.
+    expect(rankOf('spinach pasta'), isNonNegative);
+    expect(hits.first.name.toLowerCase(), 'pasta');
+    expect(hits.first.displayName.toLowerCase(), 'pasta · cooked');
+    expect(rankOf('pasta'), lessThan(rankOf('spinach pasta')));
+  });
+
+  test('an item keeps every preparation, and the hit rests on its default',
+      () async {
+    final onion =
+        (await catalog.search('onion')).firstWhere((h) => h.name == 'Onion');
+
+    // Raw at 40 kcal and boiled at 44 are different foods with different
+    // servings, which is the whole reason the wheel exists.
+    expect(onion.preps.map((p) => p.prepLabel), ['raw', 'boiled', 'frozen', 'cooked']);
+    expect(onion.preps.map((p) => p.kcal100g), [40, 44, 35, 73]);
+    expect(onion.preps.map((p) => p.servingG), [160, 210, 284, 215]);
+
+    // The row starts on the item's own preparation, not on the first one.
+    expect(onion.prepIndex, 1);
+    expect(_catalogId(onion.preps[onion.prepIndex]), _catalogId(onion));
+    expect(onion.displayName, 'Onion · boiled');
+    expect(onion.preps.first.displayName, 'Onion · raw');
+    // Every preparation is loggable in its own right, and none carries a wheel
+    // of its own — the row keeps the hit it was built from.
+    expect(onion.preps.every((p) => p.ref is CatalogRef && p.preps.isEmpty),
+        isTrue);
+
+    // A single-preparation item gets no wheel and no composed name.
+    final one = (await catalog.search('onion')).firstWhere((h) => h.preps.isEmpty);
+    expect(one.prepLabel, null);
+    expect(one.displayName, one.name);
+  });
+
+  test('a NULL prep_type reads as plain', () async {
+    // 153 of the 830 multi-preparation items have one: it is the dry or base
+    // form — `Pasta, dry`, `Rice, white, raw` — not a missing value.
+    final pasta =
+        (await catalog.search('pasta')).firstWhere((h) => h.name == 'Pasta');
+    expect(pasta.preps.map((p) => p.prepLabel), containsAll(['plain', 'cooked']));
+  });
+
+  test('a keyword nobody spells the USDA way still finds the food', () async {
+    // The LLM keywords are folded into the FTS `aka` column at build time, so
+    // this needs no query of its own — but it is the whole reason a British or
+    // Australian user finds anything at all.
+    for (final (keyword, want) in [
+      ('rocket', 'arugula'),
+      ('swede', 'rutabaga'),
+      ('courgette', 'zucchini'),
+      ('aubergine', 'eggplant'),
+    ]) {
+      final hits = await catalog.search(keyword);
+      expect(hits.first.name.toLowerCase(), contains(want),
+          reason: '$keyword should find $want');
+    }
   });
 
   test('an exact whole-name match outranks longer names containing it',

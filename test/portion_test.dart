@@ -87,6 +87,32 @@ void main() {
     expect(wholeServing(166, 'breast').scale(null), 0);
   });
 
+  test('a flick past a prep step spins the wheel, and stops at the ends', () {
+    // Four preparations — raw, boiled, frozen, cooked — resting on the second.
+    // Dragging *down* moves the list down, so earlier preparations come up.
+    expect(prepForDrag(21, 1, 4), 0);
+    expect(prepForDrag(-21, 1, 4), 2);
+    expect(prepForDrag(-42, 1, 4), 3);
+
+    // Clamped, not wrapped: a long flick lands on an end and stays there.
+    expect(prepForDrag(-500, 1, 4), 3);
+    expect(prepForDrag(500, 1, 4), 0);
+
+    // Under half a step is not a spin at all.
+    expect(prepForDrag(-10, 1, 4), 1);
+    expect(prepForDrag(10, 1, 4), 1);
+  });
+
+  test('a tap-sized drag advances one preparation, wrapping', () {
+    // The deadzone is a tap in disguise, and a tap is "show me the next one" —
+    // so it wraps where a real drag clamps.
+    expect(prepForDrag(0, 0, 4), 1);
+    expect(prepForDrag(4.9, 2, 4), 3);
+    expect(prepForDrag(-4.9, 3, 4), 0);
+    // A single-preparation item has nowhere to go, and no wheel to get there.
+    expect(prepForDrag(0, 0, 1), 0);
+  });
+
   test('the pad parses whole numbers, decimals and mixed fractions', () {
     expect(parseAmount('150'), 150);
     expect(parseAmount('1.5'), 1.5);

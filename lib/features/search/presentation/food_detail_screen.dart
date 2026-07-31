@@ -132,7 +132,7 @@ class _FoodDetailScreenState extends ConsumerState<FoodDetailScreen> {
                     style: const TextStyle(fontSize: 17, height: 1)),
                 const SizedBox(width: 7),
                 Flexible(
-                  child: Text(food.name,
+                  child: Text(food.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style:

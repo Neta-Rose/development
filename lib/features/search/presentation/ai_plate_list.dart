@@ -51,14 +51,13 @@ class AiPlateList extends ConsumerWidget {
 
 /// One detected food.
 ///
-// ponytail: the design puts a preparation wheel on the right of this row —
-// grilled / roasted / fried, switching the nutrient vector with it. Left out
-// because `catalog.foods.prep_type` is only 48% populated and carries no
-// per-preparation nutrient variants for the wheel to switch *between*: the row it
-// would offer does not exist in the catalog yet. The upgrade path is the
-// `merged_foods` variant picker, which is already in `database/foods.sqlite` and
-// whose sequence is in `database/MIGRATION_MERGED_FOODS.md` — that gives every
-// preparation of a food as a real, loggable row.
+// ponytail: the design puts a preparation wheel on the right of this row too,
+// switching the nutrient vector with it. The catalog can feed one now — the
+// search row's wheel does exactly that — so what is left out is scope, not
+// capability. The upgrade path is to give a detected food the `preps` its
+// matched hit already carries and reuse `_PrepWheel`; add it when correcting a
+// detection's preparation is worth more than correcting its weight, which is
+// the one this row offers today.
 class _PlateRow extends ConsumerWidget {
   const _PlateRow({required this.item, required this.newestShot});
 

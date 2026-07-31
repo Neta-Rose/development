@@ -141,7 +141,7 @@ class _PortionPadState extends ConsumerState<PortionPad>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(food.name,
+              Text(food.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12.5, color: AppColors.fg)),

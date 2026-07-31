@@ -12,7 +12,13 @@ part 'database.g.dart';
 /// `merged_food_id`, `merged_foods` carries the display name/emoji/commonness,
 /// and `foods` gained `prep_id`. An old app against a v3 file would read
 /// columns that moved, which is exactly what this constant prevents.
-const catalogVersion = 3;
+///
+/// v4 is the rebuilt catalogue: 6,809 items, LLM keywords folded into the FTS
+/// `aka` column, and preparations split so the wheel has rows to spin between.
+/// Same schema — but both connections extract to `catalog_v$catalogVersion` and
+/// skip the copy if it exists, so without this bump every install already
+/// carrying v3 keeps reading the old file forever.
+const catalogVersion = 4;
 
 @DriftDatabase(include: {'log.drift'})
 class AppDatabase extends _$AppDatabase {

@@ -20,6 +20,50 @@ const _apple = FoodHit(
   carb100g: 14,
 );
 
+/// An item with two preparations, each a catalog food of its own: different
+/// macros, different serving, different id.
+const _onionRaw = FoodHit(
+  name: 'Onion',
+  ref: CatalogRef(170000),
+  emoji: '🧅',
+  kcal100g: 40,
+  protein100g: 1.1,
+  fat100g: 0.1,
+  carb100g: 9.3,
+  servingG: 160,
+  servingLabel: 'cup, chopped',
+  prepLabel: 'raw',
+);
+const _onionBoiled = FoodHit(
+  name: 'Onion',
+  ref: CatalogRef(170001),
+  emoji: '🧅',
+  kcal100g: 44,
+  protein100g: 1.4,
+  fat100g: 0.2,
+  carb100g: 10.2,
+  servingG: 210,
+  servingLabel: 'cup',
+  prepLabel: 'boiled',
+);
+
+/// The hit as a search returns it: resting on the item's default preparation,
+/// which here is the second one.
+const _onion = FoodHit(
+  name: 'Onion',
+  ref: CatalogRef(170001),
+  emoji: '🧅',
+  kcal100g: 44,
+  protein100g: 1.4,
+  fat100g: 0.2,
+  carb100g: 10.2,
+  servingG: 210,
+  servingLabel: 'cup',
+  prepLabel: 'boiled',
+  preps: [_onionRaw, _onionBoiled],
+  prepIndex: 1,
+);
+
 /// The test font runs taller than IBM Plex Mono and overflows the fixed-height
 /// chip strip. Not these tests' business; everything else still fails.
 void _ignoreOverflow() {
@@ -128,6 +172,55 @@ void main() {
 
     expect(find.byType(Dismissible), findsOneWidget);
     expect(tester.getSize(find.byType(Dismissible)).height, greaterThan(0));
+  });
+
+  testWidgets('spinning the wheel restates the row as the other preparation',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    _ignoreOverflow();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith((ref) async => [_onion]),
+        ],
+        child: const MaterialApp(home: SearchScreen()),
+      ),
+    );
+    await tester.pump();
+
+    // At rest: the default preparation, named, at its own serving.
+    // 44 kcal/100 g × 210 g = 92.
+    expect(find.text('Onion · boiled'), findsOneWidget);
+    expect(find.text('1 × cup (210 g)'), findsOneWidget);
+    expect(find.textContaining('92 kcal', findRichText: true), findsOneWidget);
+
+    // Drag the wheel down a step and a half — one preparation back. Moves are
+    // pumped one at a time: delivered in a single frame the recognizer never
+    // sees a drag at all, and the first 18 px are touch slop.
+    final gesture = await tester.startGesture(
+        tester.getCenter(find.text('boiled', skipOffstage: false)));
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(0, 12));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // The whole food moved, not just the label: macros, serving and name.
+    // 40 kcal/100 g × 160 g = 64.
+    expect(find.text('Onion · raw'), findsOneWidget);
+    expect(find.text('Onion · boiled'), findsNothing);
+    expect(find.text('1 × cup, chopped (160 g)'), findsOneWidget);
+    expect(find.textContaining('64 kcal', findRichText: true), findsOneWidget);
+
+    // And it is the raw onion that gets staged, not the item's default.
+    await _swipeToStage(tester, find.text('Onion · raw'));
+    expect(find.byType(Dismissible), findsOneWidget);
+    expect(find.text('Onion · raw'), findsNWidgets(2)); // row and chip
   });
 
   testWidgets('quick add stages the 4·4·9 total', (tester) async {

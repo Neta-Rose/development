@@ -52,6 +52,9 @@ class FoodHit {
     this.carb100g,
     this.servingG,
     this.servingLabel,
+    this.prepLabel,
+    this.preps = const [],
+    this.prepIndex = 0,
   });
 
   final String name;
@@ -66,10 +69,36 @@ class FoodHit {
   final double? servingG;
   final String? servingLabel;
 
+  /// This hit's own preparation — `raw`, `boiled`, `plain` — set only when the
+  /// item has more than one, since that is the only case where naming it says
+  /// anything.
+  final String? prepLabel;
+
+  /// Every preparation of this item, each a loggable food in its own right, or
+  /// empty for the 88% of items that have exactly one. [prepIndex] is where this
+  /// hit sits among them: the item's default preparation, and where the wheel
+  /// starts.
+  ///
+  /// The entries carry no [preps] of their own — the row keeps the hit it was
+  /// built from and reads the wheel off that.
+  final List<FoodHit> preps;
+  final int prepIndex;
+
   /// The food's own serving weight, with the per-100 g fallback applied. The
   /// label goes null with it: without a gram weight there is no unit to name.
   double get unitG => servingG ?? 100;
   String? get unitLabel => servingG == null ? null : servingLabel;
+
+  /// What to show a human: `Onion · boiled` where the item has preparations,
+  /// the bare [name] where it does not.
+  ///
+  /// Separate from [name] on purpose. `display_name` is denormalised *down*
+  /// from the item, so every preparation of Onion is literally called `Onion`
+  /// — but [name] is also what `bestMatch` scores an AI detection against, and
+  /// `Onion · raw` scores materially worse against `onion` than `Onion` does.
+  /// Composing into the field itself would quietly push detections under the
+  /// similarity threshold and into generated foods.
+  String get displayName => prepLabel == null ? name : '$name · $prepLabel';
 }
 
 /// The extras the detail screen shows under the four list macros, per 100 g.
@@ -165,7 +194,80 @@ class CatalogRepository {
       ];
     }
 
-    return [...await _customSearch(term, since), ...hits];
+    return [...await _customSearch(term, since), ...await _withPreps(hits)];
+  }
+
+  /// Attaches every hit's preparations, in one query for the whole page.
+  ///
+  /// A search row is the item's *default* preparation, and raw onion at 40 kcal
+  /// and boiled onion at 44 are different foods with different servings — so the
+  /// wheel needs them all, and needs them before the row is built rather than
+  /// on demand behind a spin.
+  ///
+  /// Items with one preparation come back with `preps` empty rather than with a
+  /// list of one: an empty list is what "no wheel" means to the row, and a
+  /// single-entry one would name a preparation the user has no choice about.
+  Future<List<FoodHit>> _withPreps(List<FoodHit> hits) async {
+    final ids = [
+      for (final h in hits)
+        if (h.ref case CatalogRef(:final id)) id,
+    ];
+    if (ids.isEmpty) return hits;
+
+    // `food_id = prep_id` picks the one food that represents each preparation;
+    // the other members of that preparation are the same food at another fat
+    // level or from another data set.
+    final rows = await _db.customSelect(
+      'SELECT merged_food_id, food_id, prep_type, kcal_100g, protein_100g, '
+      'fat_100g, carb_100g, serving_g, serving_label FROM catalog.foods '
+      'WHERE merged_food_id IN (${List.filled(ids.length, '?').join(',')}) '
+      'AND food_id = prep_id ORDER BY merged_food_id, food_id',
+      variables: [for (final id in ids) Variable(id)],
+    ).get();
+
+    final byItem = <int, List<QueryRow>>{};
+    for (final r in rows) {
+      (byItem[r.read<int>('merged_food_id')] ??= []).add(r);
+    }
+
+    return [
+      for (final hit in hits)
+        if (hit.ref case CatalogRef(:final id)
+            when (byItem[id]?.length ?? 0) > 1)
+          _asPreparations(hit, byItem[id]!, id)
+        else
+          hit,
+    ];
+  }
+
+  /// [hit] rebuilt as its own preparation, carrying [rows] as the rest.
+  ///
+  /// Name and emoji come from the item, not the row: they are the same for every
+  /// preparation, and `prep_type` is what tells them apart. NULL there is the
+  /// dry or base form — `Pasta, dry`, `Rice, white, raw` — which the design
+  /// calls `plain`.
+  FoodHit _asPreparations(FoodHit hit, List<QueryRow> rows, int defaultId) {
+    FoodHit at(QueryRow r, {List<FoodHit> preps = const [], int index = 0}) =>
+        FoodHit(
+          name: hit.name,
+          ref: CatalogRef(r.read<int>('food_id')),
+          emoji: hit.emoji,
+          kcal100g: r.readNullable<double>('kcal_100g'),
+          protein100g: r.readNullable<double>('protein_100g'),
+          fat100g: r.readNullable<double>('fat_100g'),
+          carb100g: r.readNullable<double>('carb_100g'),
+          servingG: r.readNullable<double>('serving_g'),
+          servingLabel: r.readNullable<String>('serving_label'),
+          prepLabel: r.readNullable<String>('prep_type') ?? 'plain',
+          preps: preps,
+          prepIndex: index,
+        );
+
+    final index = rows.indexWhere((r) => r.read<int>('food_id') == defaultId);
+    // An item id is by construction one of its own preparations, so this holds
+    // — but a hit with no preparation to rest on would spin from the wrong food.
+    if (index < 0) return hit;
+    return at(rows[index], preps: [for (final r in rows) at(r)], index: index);
   }
 
   /// The primary FTS pass alone, for resolving a detected food name.

@@ -13,7 +13,7 @@ catalog automatically (nothing in the log shadows those names), so catalog queri
 
 | file | role | size | writable |
 | --- | --- | --- | --- |
-| `foods.sqlite` | USDA catalog, 13,694 foods in 10,000 merged items, FTS prebuilt | 21.7 MB | **no** — replaced wholesale on upgrade |
+| `foods.sqlite` | USDA catalog, 13,694 foods in 6,809 merged items, FTS prebuilt | 21.7 MB | **no** — replaced wholesale on upgrade |
 | `log.sqlite` | the user's log, custom foods, recipes | grows | yes — created by the app on first launch |
 
 A catalog upgrade is "replace one file". Never write to it, and never store a foreign key into it:
@@ -38,7 +38,7 @@ A catalog upgrade is "replace one file". Never write to it, and never store a fo
 | `description` | TEXT NOT NULL | raw USDA text, e.g. `Yogurt, Greek, plain, nonfat` |
 | `display_name` | TEXT | clean name for UI, e.g. `Nonfat Greek yogurt` — 100% populated |
 | `emoji` | TEXT | one emoji; 13,693 of 13,694 have one, so handle NULL |
-| `prep_type` | TEXT | `raw`, `cooked`, `frozen`, `canned`, `roasted`, … — 48% populated |
+| `prep_type` | TEXT | `raw`, `cooked`, `frozen`, `canned`, `roasted`, … — 42% populated |
 | `variable_fat` | INTEGER | 1 for families sold at several fat levels (ground beef, milk). 448 foods |
 | `category` | TEXT | USDA category, 197 distinct values. Indexed |
 | `data_type` | TEXT | `sr_legacy_food` 7,793 · `survey_fndds_food` 5,432 · `foundation_food` 469 |
@@ -53,7 +53,7 @@ item, and `prep_type` across from the preparation, so every food carries the str
 shows — `log_entries` snapshots them per food. Display name is
 `coalesce(display_name, description)`.
 
-## `merged_foods` — 8,335 rows, one per food a user recognizes
+## `merged_foods` — 6,809 rows, one per food a user recognizes
 
 The catalog holds one row per USDA record, so a user searching for "chicken thigh" used to meet
 56 of them and ground beef is nine rows at nine fat levels. This table is the **item**: one row
@@ -68,8 +68,8 @@ in the search list. `foods.merged_food_id` points each food at its item.
 | `category` | TEXT | the default member's USDA category |
 | `commonness` | REAL | 0.05–1.0, how likely this is in an ordinary kitchen (eggs ≈ 1) |
 | `variable_fat` | INTEGER NOT NULL | 1 when the item spans fat levels (ground beef, milk) |
-| `n_foods` | INTEGER NOT NULL | member count, 1–19. 2,855 hold more than one |
-| `n_preps` | INTEGER NOT NULL | preparations, 1–6. 1,722 items have more than one |
+| `n_foods` | INTEGER NOT NULL | member count, 1–62. 2,313 hold more than one |
+| `n_preps` | INTEGER NOT NULL | preparations, 1–9. 830 items have more than one |
 
 **Total by construction**: every `foods` row has exactly one item and `sum(n_foods) = 13,694`,
 so this join never drops a food.
@@ -77,7 +77,7 @@ so this join never drops a food.
 An item has no nutrition of its own — its macros, portions and nutrients are the `foods` row
 where `food_id = merged_food_id`.
 
-The **preparations** behind one item, which is the whole picker. Each is a real loggable food
+The **preparations** behind one item, which is the whole wheel. Each is a real loggable food
 with its own macros, and `food_id = prep_id` is what marks the one that represents it:
 
 ```sql
@@ -86,6 +86,10 @@ SELECT food_id, prep_type, kcal_100g, protein_100g, fat_100g, carb_100g,
   FROM foods WHERE merged_food_id = ? AND food_id = prep_id ORDER BY food_id;
 ```
 
+⚠️ **`prep_type IS NULL` on a preparation is not a missing value** — it is the dry or base form
+(`Pasta, dry`, `Oats, dry`, `Rice, white, raw`), and 153 of the 830 multi-preparation items have
+one. The app renders it as `plain`, which is the design's own vocabulary.
+
 Two foods are the same item when their descriptions share ingredient tokens **and** their
 protein:carb:fat ratio agrees; within an item, preparations split on **absolute** macros, because
 cooking drives water off. So raw thigh (19.7 g protein) and cooked thigh (24.8 g) are two
@@ -93,8 +97,8 @@ preparations of one item, while grilled, boiled and baked are one preparation ca
 Reasoning and the measured thresholds are in `generate-sqlite/README.md`.
 
 ⚠️ **Log a `foods.food_id`, never a `merged_food_id` as though it were a food.** They are the
-same integer, but an item id logs its *default* preparation — right until the user picks
-another one from the list above.
+same integer, but an item id logs its *default* preparation — right until the user spins the wheel
+to another one.
 
 ## `food_nutrition` — 13,692 rows, wide, PK `food_id`
 
@@ -148,7 +152,7 @@ codes resolve to SR Legacy foods. Design "what goes with this" to degrade gracef
 
 ## `food_fts` / `food_fts_trgm` — FTS5, contentless, `rowid = merged_food_id`
 
-**One row per item, not per food** — 8,335 rows, and `rowid` is the `merged_food_id`. So a
+**One row per item, not per food** — 6,809 rows, and `rowid` is the `merged_food_id`. So a
 search returns "chicken thigh" once instead of 56 times with no collapsing to do.
 
 `food_fts(name, prep, aka, members)` with `prefix='2 3'`,
@@ -486,7 +490,7 @@ the edit would never sync. **A recipe save must end with**
     multiplier sorts earlier. Sort before the `LIMIT`, and compare `prep_type` with `IS` (it is
     NULL on about half of all items, and a NULL term poisons the product and sorts first).
 14. A search row is a **merged item**: `food_id` is its *default* preparation, not necessarily the
-    one the user means. Offer the variant picker when `n_preps > 1`
+    one the user means. Offer the preparation wheel when `n_preps > 1`
     (`WHERE merged_food_id = ? AND food_id = prep_id`).
 15. `food_fts.rowid` is `merged_food_id`, **not** `food_id`. Joining it to `foods` still works —
     an item id is a real food id — but it resolves to the default preparation, not to whichever

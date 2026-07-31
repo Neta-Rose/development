@@ -1,7 +1,9 @@
-/// The swipe-to-portion maths, kept out of the widget so it can be tested.
+/// The swipe maths of a search result row, kept out of the widget so it can be
+/// tested.
 ///
-/// Dragging a search result right walks a ladder of gram amounts; dragging up
-/// or down multiplies the rung. Ported from the design's `ladderFor`/`swSel`.
+/// Dragging a row right walks a ladder of gram amounts; dragging up or down
+/// multiplies the rung. Dragging its preparation wheel spins that instead.
+/// Ported from the design's `ladderFor`/`swSel`/`prepUp`.
 library;
 
 /// Multipliers, centred on 1 — index 2 is the resting position.
@@ -103,6 +105,25 @@ Portion wholeServing(double unitG, String? unitLabel) => Portion(
       portionLabel: unitLabel,
       label: unitLabel == null ? '${unitG.round()} g' : '1 × $unitLabel',
     );
+
+/// Height of one preparation on the wheel, and so the travel a spin is measured
+/// in. The design settles on 0.7 of it per step, which lands the next label
+/// under the finger a little before it has been dragged all the way there.
+const prepRowPx = 30.0;
+const _prepStepPx = prepRowPx * 0.7;
+
+/// How far a drag counts as a tap in disguise.
+const _prepTapPx = 5.0;
+
+/// Which preparation a wheel resting on [index] of [count] lands on when a drag
+/// of [dy] is released.
+///
+/// A drag clamps at the ends, but a tap-sized one *wraps*: with no travel to
+/// read a direction off, "the next one" is the only thing it can mean, and a
+/// wheel that stopped dead on the last preparation would look broken.
+int prepForDrag(double dy, int index, int count) => dy.abs() < _prepTapPx
+    ? (index + 1) % count
+    : (index - (dy / _prepStepPx).round()).clamp(0, count - 1);
 
 /// `2`, not `2.0`; `0.5` stays `0.5`.
 String formatQty(double q) =>
