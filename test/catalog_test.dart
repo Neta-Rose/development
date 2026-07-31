@@ -1,14 +1,24 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:healthapp/core/database/database.dart';
 import 'package:healthapp/core/database/nutrients.dart';
 import 'package:healthapp/features/home/data/catalog_repository.dart';
 import 'package:healthapp/features/home/data/food_log_repository.dart';
+import 'package:healthapp/features/search/domain/ai_plate.dart';
+import 'package:healthapp/features/search/domain/portion.dart';
+import 'package:healthapp/features/search/presentation/search_providers.dart';
+
+/// One staged food at a nominal 100 g. The amount is not what the write-path
+/// tests are about — which table the food lands in is.
+BatchItem _staged(FoodHit food, {AiOrigin? ai}) =>
+    BatchItem(food, const Portion(grams: 100, label: '100 g'), ai: ai);
 
 /// Runs against the real `database/foods.sqlite`, attached to an in-memory log.
 /// These are the paths where a silent mistake is most expensive: the 50-column
-/// snapshot SQL, the recipe roll-up, and the trigram fallback.
+/// snapshot SQL, the recipe roll-up, the trigram fallback, and the batch's
+/// choice of which table each food is written to.
 void main() {
   late AppDatabase db;
   late FoodLogRepository log;
@@ -23,6 +33,19 @@ void main() {
     await db.customSelect('SELECT 1').get();
   });
   tearDown(() => db.close());
+
+  /// A provider container over the same fixture. Every repository provider
+  /// derives from the database provider, so this one override wires the whole
+  /// write path — no new seam.
+  ProviderContainer batchScope() {
+    final c = ProviderContainer.test(
+      overrides: [appDatabaseProvider.overrideWith((ref) async => db)],
+    );
+    // batchProvider is auto-dispose: with nothing listening, the staged foods
+    // would be thrown away before logAll reads them.
+    c.listen(batchProvider, (_, _) {});
+    return c;
+  }
 
   test('nutrient column list matches the catalog and the log', () async {
     Future<Set<String>> cols(String sql) async => (await db.customSelect(sql).get())
@@ -267,6 +290,127 @@ void main() {
         .single
         .read<int>('food_id');
     expect(await catalog.portions(without), isEmpty);
+  });
+
+  test('logging a batch writes each food to the table it belongs to', () async {
+    final foodId = (await db.customSelect(
+      'SELECT food_id FROM catalog.food_nutrition ORDER BY food_id LIMIT 1',
+    ).get())
+        .single
+        .read<int>('food_id');
+    final customId = await log.saveCustomFood(name: 'Whey Isolate');
+
+    final c = batchScope();
+    final batch = c.read(batchProvider.notifier);
+    batch.add(_staged(
+        FoodHit(name: 'Catalog food', isCustom: false, foodId: foodId)));
+    batch.add(_staged(
+        FoodHit(name: 'Whey Isolate', isCustom: true, customFoodId: customId)));
+    // Neither id: no row in either table yet.
+    batch.add(_staged(const FoodHit(
+        name: 'Quick entry', isCustom: true, kcal100g: 210, protein100g: 30)));
+
+    await batch.logAll();
+
+    final rows =
+        await db.customSelect('SELECT * FROM log_entries ORDER BY rowid').get();
+    expect(rows, hasLength(3));
+
+    // A catalog food stays linked to the catalog rather than duplicating it.
+    expect(rows[0].read<int>('food_id'), foodId);
+    expect(rows[0].readNullable<String>('custom_food_id'), null);
+
+    // A custom food is logged against the row it already has.
+    expect(rows[1].read<String>('custom_food_id'), customId);
+    expect(rows[1].readNullable<int>('food_id'), null);
+
+    // The unsaved food gets exactly one row written on its way out, and is
+    // logged against that one.
+    final created = await db.customSelect(
+        'SELECT id, name, energy_kcal, protein_g FROM custom_foods '
+        'WHERE id <> ?',
+        variables: [Variable(customId)]).get();
+    expect(created, hasLength(1));
+    expect(created.single.read<String>('name'), 'Quick entry');
+    // Staged as one nominal 100 g serving, so the typed numbers land verbatim.
+    expect(created.single.read<double>('energy_kcal'), closeTo(210, 1e-9));
+    expect(created.single.read<double>('protein_g'), closeTo(30, 1e-9));
+    expect(rows[2].read<String>('custom_food_id'),
+        created.single.read<String>('id'));
+    expect(rows[2].readNullable<int>('food_id'), null);
+
+    expect(c.read(batchProvider), isEmpty);
+  });
+
+  test('a detected food reuses its row, a typed one gets its own', () async {
+    const detected =
+        FoodHit(name: 'Grilled chicken', isCustom: true, kcal100g: 200);
+    const typed = FoodHit(name: 'Quick entry', isCustom: true, kcal100g: 210);
+
+    final batch = batchScope().read(batchProvider.notifier);
+    // The detector names a food identically every time it sees it, so its rows
+    // must not accumulate one per meal.
+    batch.add(_staged(detected, ai: const AiOrigin(instanceId: 'i1')));
+    batch.add(_staged(detected, ai: const AiOrigin(instanceId: 'i2')));
+    // Quick add is one row per entry, deliberately.
+    batch.add(_staged(typed));
+    batch.add(_staged(typed));
+
+    await batch.logAll();
+
+    final counts = {
+      for (final r in await db.customSelect(
+              'SELECT name, count(*) AS n FROM custom_foods GROUP BY name')
+          .get())
+        r.read<String>('name'): r.read<int>('n'),
+    };
+    expect(counts, {'Grilled chicken': 1, 'Quick entry': 2});
+    expect(
+        (await db.customSelect('SELECT count(*) AS n FROM log_entries').get())
+            .single
+            .read<int>('n'),
+        4);
+  });
+
+  test('extra nutrients come from whichever table the food is stored in',
+      () async {
+    final pick = (await db.customSelect(
+      'SELECT food_id, fiber_g, sodium_mg FROM catalog.food_nutrition '
+      'WHERE fiber_g > 0 AND sodium_mg > 0 ORDER BY food_id LIMIT 1',
+    ).get())
+        .single;
+
+    final fromCatalog =
+        await catalog.extraNutrients(foodId: pick.read<int>('food_id'));
+    expect(fromCatalog!.fiber, closeTo(pick.read<double>('fiber_g'), 1e-9));
+    expect(fromCatalog.sodium, closeTo(pick.read<double>('sodium_mg'), 1e-9));
+
+    // The same four columns, read out of custom_foods instead. A 100 g serving
+    // makes the divisor 1, so the numbers stored are the ones passed in.
+    final customId = await log.saveCustomFood(
+      name: 'Wheat Bran',
+      servingG: 100,
+      perServing: {'fiber_g': 43, 'sat_fat_g': 0.6, 'sodium_mg': 2},
+    );
+    final fromCustom = await catalog.extraNutrients(customId: customId);
+    expect(fromCustom!.fiber, closeTo(43, 1e-9));
+    expect(fromCustom.satFat, closeTo(0.6, 1e-9));
+    expect(fromCustom.sodium, closeTo(2, 1e-9));
+    expect(fromCustom.sugar, null);
+
+    // An unsaved food has no row in either table.
+    expect(await catalog.extraNutrients(), null);
+
+    // 2 of the 13,694 catalog foods have no food_nutrition row. They show
+    // nothing rather than failing.
+    final without = (await db.customSelect(
+      'SELECT f.food_id FROM catalog.foods f WHERE NOT EXISTS '
+      '(SELECT 1 FROM catalog.food_nutrition n WHERE n.food_id = f.food_id) '
+      'LIMIT 1',
+    ).get())
+        .single
+        .read<int>('food_id');
+    expect(await catalog.extraNutrients(foodId: without), null);
   });
 
   test('negative carb_g foods stay loggable', () async {
