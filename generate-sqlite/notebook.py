@@ -1065,5 +1065,13 @@ def _(con, get_review_version, mo, store):
     return
 
 
+@app.cell
+def _(con, mo):
+    _df = mo.sql(f"""
+    SELECT * FROM "foods" LIMIT 100
+    """, engine=con)
+    return
+
+
 if __name__ == "__main__":
     app.run()
