@@ -47,6 +47,16 @@ const _onionBoiled = FoodHit(
   prepLabel: 'boiled',
 );
 
+const _onionFrozen = FoodHit(
+  name: 'Onion',
+  ref: CatalogRef(170412),
+  emoji: '🧅',
+  kcal100g: 35,
+  servingG: 284,
+  servingLabel: 'package (10 oz)',
+  prepLabel: 'frozen',
+);
+
 /// The hit as a search returns it: resting on the item's default preparation,
 /// which here is the second one.
 const _onion = FoodHit(
@@ -63,6 +73,17 @@ const _onion = FoodHit(
   preps: [_onionRaw, _onionBoiled],
   prepIndex: 1,
 );
+
+/// A results list a test can swap out under a live tree, for the cases where
+/// what matters is what the old widgets remember about the new data.
+class _Source extends Notifier<List<FoodHit>> {
+  @override
+  List<FoodHit> build() => const [];
+
+  void show(List<FoodHit> hits) => state = hits;
+}
+
+final _source = NotifierProvider<_Source, List<FoodHit>>(_Source.new);
 
 /// The test font runs taller than IBM Plex Mono and overflows the fixed-height
 /// chip strip. Not these tests' business; everything else still fails.
@@ -221,6 +242,59 @@ void main() {
     await _swipeToStage(tester, find.text('Onion · raw'));
     expect(find.byType(Dismissible), findsOneWidget);
     expect(find.text('Onion · raw'), findsNWidgets(2)); // row and chip
+  });
+
+  testWidgets('a new result set does not inherit the last row\'s spin',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    _ignoreOverflow();
+
+    // A three-preparation item, spun to its last one.
+    const three = FoodHit(
+      name: 'Onion',
+      ref: CatalogRef(170000),
+      kcal100g: 40,
+      servingG: 160,
+      servingLabel: 'cup, chopped',
+      prepLabel: 'raw',
+      preps: [_onionRaw, _onionBoiled, _onionFrozen],
+    );
+
+    // One tree throughout, with the results swapped underneath it: pumping a
+    // second ProviderScope would rebuild the list from scratch and prove
+    // nothing about what a recycled row remembers.
+    final container = ProviderContainer.test(overrides: [
+      searchResultsProvider.overrideWith((ref) async => ref.watch(_source)),
+    ]);
+    container.read(_source.notifier).show([three]);
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: SearchScreen()),
+    ));
+    await tester.pump();
+
+    // Tapped on the chevron, which stays put while the labels slide past it.
+    // Two taps walk raw → boiled → frozen; the settle is pumped explicitly
+    // because the search field blinks its cursor forever.
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.text('Onion · frozen'), findsOneWidget);
+
+    // The next query puts a shorter wheel in the same list slot. A row that
+    // kept the old index would open on the wrong preparation — or, at index 2
+    // of a two-preparation item, throw.
+    container.read(_source.notifier).show([_onion]);
+    // One frame for the results future, one to land the wheel.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Onion · boiled'), findsOneWidget);
+    expect(find.text('Onion · frozen'), findsNothing);
   });
 
   testWidgets('quick add stages the 4·4·9 total', (tester) async {

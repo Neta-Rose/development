@@ -377,6 +377,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         // The row hands back which food it is on: spinning its preparation
         // wheel swaps the hit under it, and boiled onion is not raw onion.
         return _ResultRow(
+          // Keyed by the hit's identity, because the row holds which
+          // preparation it was spun to. A positional key lets the next result
+          // set recycle that state onto a different food — at best the wrong
+          // preparation, at worst an index past the end of a shorter wheel.
+          key: ObjectKey(hits[i - 1]),
           food: hits[i - 1],
           editing: _editing,
           onAdd: (food, portion) =>
@@ -473,6 +478,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 /// catalog food.
 class _ResultRow extends StatefulWidget {
   const _ResultRow({
+    super.key,
     required this.food,
     required this.editing,
     required this.onAdd,
@@ -704,12 +710,14 @@ class _PrepWheelState extends State<_PrepWheel> {
   double _dy = 0;
   bool _dragging = false;
 
+  void _reset() => setState(() {
+        _dragging = false;
+        _dy = 0;
+      });
+
   void _end() {
     widget.onPick(prepForDrag(_dy, widget.index, widget.preps.length));
-    setState(() {
-      _dragging = false;
-      _dy = 0;
-    });
+    _reset();
   }
 
   @override
@@ -731,10 +739,7 @@ class _PrepWheelState extends State<_PrepWheel> {
       onVerticalDragUpdate: (d) =>
           setState(() => _dy = d.globalPosition.dy - _startY),
       onVerticalDragEnd: (_) => _end(),
-      onVerticalDragCancel: () => setState(() {
-        _dragging = false;
-        _dy = 0;
-      }),
+      onVerticalDragCancel: _reset,
       child: Container(
         width: 92,
         height: prepRowPx,
@@ -779,12 +784,24 @@ class _PrepWheelState extends State<_PrepWheel> {
                 ],
               ),
             ),
+            // The design's `⌃⌄`: a pair of thin chevrons, not one glyph, so the
+            // mark says "there is one above and one below" rather than "sort".
             Positioned(
               right: 5,
               top: 0,
               bottom: 0,
-              child: Icon(Icons.unfold_more,
-                  size: 11, color: AppColors.amber.withValues(alpha: .5)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final icon in [
+                    Icons.keyboard_arrow_up,
+                    Icons.keyboard_arrow_down,
+                  ])
+                    Icon(icon,
+                        size: 9,
+                        color: AppColors.amber.withValues(alpha: .5)),
+                ],
+              ),
             ),
           ],
         ),

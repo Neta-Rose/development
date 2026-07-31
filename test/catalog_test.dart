@@ -256,6 +256,43 @@ void main() {
     expect(one.displayName, one.name);
   });
 
+  test('a logged preparation names itself, so the timeline can tell two apart',
+      () async {
+    final onion =
+        (await catalog.search('onion')).firstWhere((h) => h.name == 'Onion');
+    final raw = onion.preps.first;
+    final boiled = onion.preps[1];
+
+    final c = batchScope();
+    final batch = c.read(batchProvider.notifier);
+    batch.add(BatchItem(raw, const Portion(grams: 100, label: '100 g')));
+    batch.add(BatchItem(boiled, const Portion(grams: 100, label: '100 g')));
+    await batch.logAll();
+
+    // Both are called `Onion` in the catalogue — `display_name` is denormalised
+    // down from the item — so the snapshot is the only thing that can tell 40
+    // kcal from 44.
+    final rows = await db
+        .customSelect('SELECT name, energy_kcal FROM log_entries ORDER BY rowid')
+        .get();
+    expect(rows.map((r) => r.read<String>('name')),
+        ['Onion · raw', 'Onion · boiled']);
+    expect(rows.map((r) => r.read<double>('energy_kcal')), [40, 44]);
+  });
+
+  test('a food with one preparation keeps the catalogue name', () async {
+    // The override is for a choice the user made; with nothing to choose, the
+    // catalogue's own name is still the right one.
+    final foodId = (await db.customSelect(
+      'SELECT food_id FROM catalog.foods ORDER BY food_id LIMIT 1',
+    ).get())
+        .single
+        .read<int>('food_id');
+    await log.logCatalogFood(foodId, grams: 100);
+    final row = (await db.customSelect('SELECT * FROM log_entries').get()).single;
+    expect(row.read<String>('name'), isNotEmpty);
+  });
+
   test('a NULL prep_type reads as plain', () async {
     // 153 of the 830 multi-preparation items have one: it is the dry or base
     // form — `Pasta, dry`, `Rice, white, raw` — not a missing value.

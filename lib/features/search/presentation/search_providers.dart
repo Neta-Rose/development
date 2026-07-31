@@ -122,6 +122,10 @@ class Batch extends _$Batch {
               grams: p.grams,
               portionQty: p.qty,
               portionLabel: p.portionLabel,
+              // Only where the user had a preparation to choose: the entry is a
+              // snapshot, and the catalogue calls every preparation of Onion
+              // `Onion`. Null everywhere else keeps the catalogue's own name.
+              name: food.prepLabel == null ? null : food.displayName,
               at: at);
         case CustomRef(:final id):
           await logCustom(id);

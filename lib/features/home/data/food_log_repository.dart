@@ -58,15 +58,21 @@ class FoodLogRepository {
 
   /// Logs a catalog food, snapshotting its whole nutrient vector so history is
   /// immune to a later catalog upgrade.
+  ///
+  /// [name] overrides the catalogue's own, and exists for one case: a food the
+  /// user picked a preparation of. Every preparation of Onion is called `Onion`
+  /// in the catalogue, so `Onion · boiled` is the only thing that tells the
+  /// timeline's 44 kcal entry from its 40 kcal one. Null keeps the catalogue's.
   Future<void> logCatalogFood(
     int foodId, {
     required double grams,
     double? portionQty,
     String? portionLabel,
+    String? name,
     DateTime? at,
   }) =>
-      _insertLog(
-          logCatalogFoodSql, Variable(foodId), grams, portionQty, portionLabel, at);
+      _insertLog(logCatalogFoodSql, grams, portionQty, portionLabel, at,
+          [Variable(name), Variable(foodId)]);
 
   /// Logs a custom food or a recipe — both are `custom_foods` rows.
   Future<void> logCustomFood(
@@ -76,13 +82,17 @@ class FoodLogRepository {
     String? portionLabel,
     DateTime? at,
   }) =>
-      _insertLog(logCustomFoodSql, Variable(customFoodId), grams, portionQty,
-          portionLabel, at);
+      _insertLog(logCustomFoodSql, grams, portionQty, portionLabel, at,
+          [Variable(customFoodId)]);
 
   // customInsert, not customStatement: only the former tells drift's stream
   // layer that log_entries changed, so the timeline refreshes without a reload.
-  Future<void> _insertLog(String sql, Variable id, double grams, double? qty,
-          String? label, DateTime? at) =>
+  //
+  // [tail] is whatever the statement binds after the four shared amounts, in
+  // the order the SQL text mentions them — bare `?` binds by appearance, so the
+  // two statements differ only in their tails.
+  Future<void> _insertLog(String sql, double grams, double? qty, String? label,
+          DateTime? at, List<Variable> tail) =>
       _db.customInsert(
         sql,
         variables: [
@@ -90,7 +100,7 @@ class FoodLogRepository {
           Variable(grams),
           Variable(qty),
           Variable(label),
-          id,
+          ...tail,
         ],
         updates: {_db.logEntries},
       );

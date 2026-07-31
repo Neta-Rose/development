@@ -67,11 +67,17 @@ const nutrientColumns = <String>[
 /// `LEFT JOIN` because 2 of the 13,694 catalog foods have no `food_nutrition`
 /// row; they log with NULL nutrients rather than failing.
 ///
-/// Placeholders: logged_at, grams, portion_qty, portion_label, food_id.
+/// The name placeholder is how a preparation names itself. `display_name` is
+/// denormalised *down* from the item, so every preparation of Onion is called
+/// `Onion` in the catalogue — and this row is a snapshot, so without an override
+/// the timeline could not tell boiled from raw at 44 against 40 kcal per 100 g.
+/// NULL falls back to the catalogue's own name.
+///
+/// Placeholders: logged_at, grams, portion_qty, portion_label, name, food_id.
 final logCatalogFoodSql = '''
 INSERT INTO log_entries (food_id, logged_at, grams, portion_qty, portion_label,
        name, emoji, ${nutrientColumns.join(', ')})
-SELECT f.food_id, ?, ?, ?, ?, coalesce(f.display_name, f.description), f.emoji,
+SELECT f.food_id, ?, ?, ?, ?, coalesce(?, f.display_name, f.description), f.emoji,
        ${nutrientColumns.map((c) => 'n.$c').join(', ')}
   FROM catalog.foods f
   LEFT JOIN catalog.food_nutrition n ON n.food_id = f.food_id
