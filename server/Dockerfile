@@ -11,9 +11,9 @@
 
 FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24-alpine AS build
 WORKDIR /src
-# go.mod has no requires and there is no go.sum, so these two lines are the whole
-# build context. Test files come along too; they cost a few KB and keep the COPY honest.
-COPY go.mod ./
+# Copy go.mod and go.sum first to cache dependency downloads.
+COPY go.mod go.sum ./
+RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
     go build -trimpath -ldflags="-s -w" -o /plated .
