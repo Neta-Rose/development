@@ -5,32 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/tmc/langchaingo/llms"
 )
 
 // Detector turns a batch of shots into a deduplicated plate.
 type Detector struct {
-	client *openRouterClient
-	cfg    Config
+	factory *ProviderFactory
+	cfg     Config
 }
 
-func NewDetector(cfg Config, client *openRouterClient) *Detector {
-	return &Detector{client: client, cfg: cfg}
+func NewDetector(cfg Config, factory *ProviderFactory) *Detector {
+	return &Detector{factory: factory, cfg: cfg}
 }
 
 // Detect sends the whole batch and returns one entry per distinct physical food
 // item across all of it.
-//
-// A reply that does not parse is resent exactly once, because a schema slip is
-// usually a sampling accident and a second draw usually fixes it. A network,
-// timeout or HTTP failure is never resent: those are not going to answer
-// differently inside the same request, and the app already offers a retry
-// control the user drives.
-//
-// Both attempts share one wall-clock budget, so a resend cannot push the total
-// past what the app is prepared to wait for.
 func (d *Detector) Detect(
 	ctx context.Context,
-	model string,
+	rawModel string,
 	shots [][]byte,
 	plate []PlateItem,
 ) ([]Detection, error) {
@@ -41,21 +34,61 @@ func (d *Detector) Detect(
 		return nil, errors.New("detect: no shots")
 	}
 
+	provider, modelID := d.cfg.ParseModel(rawModel)
+	if !d.cfg.ProviderConfigured(provider) {
+		return nil, errNotConfigured
+	}
+
+	model, err := d.factory.GetModel(ctx, provider, modelID)
+	if err != nil {
+		return nil, classifyTransportError(err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, d.cfg.UpstreamBudget)
 	defer cancel()
 
 	userText := buildUserText(len(shots), plate)
 
+	userParts := make([]llms.ContentPart, 0, len(shots)+1)
+	userParts = append(userParts, llms.TextPart(userText))
+	for _, shot := range shots {
+		userParts = append(userParts, llms.BinaryPart("image/jpeg", shot))
+	}
+
+	messages := []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: userParts,
+		},
+	}
+
+	opts := []llms.CallOption{
+		llms.WithTemperature(d.cfg.Temperature),
+		llms.WithMaxTokens(d.cfg.MaxTokens),
+		llms.WithJSONMode(),
+	}
+
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		content, err := d.client.complete(ctx, model, userText, shots)
-		if err == nil {
-			items, perr := parseReply(content, len(shots), plate)
-			if perr == nil {
-				return items, nil
+		resp, err := model.GenerateContent(ctx, messages, opts...)
+		if err == nil && len(resp.Choices) > 0 {
+			content := resp.Choices[0].Content
+			if content != "" {
+				items, perr := parseReply(content, len(shots), plate)
+				if perr == nil {
+					return items, nil
+				}
+				err = perr
+			} else {
+				err = errUnreadable
 			}
-			err = perr
+		} else if err != nil {
+			err = classifyTransportError(err)
+		} else {
+			err = errUnreadable
 		}
+
 		// Only an unreadable reply earns the resend.
 		if !errors.Is(err, errUnreadable) {
 			return nil, err
@@ -78,18 +111,13 @@ func parseReply(content string, shotCount int, plate []PlateItem) ([]Detection, 
 	raw := *reply.Items
 	items := normalizeDetections(raw, shotCount, plate)
 
-	// An empty answer is a real answer: no food in these shots. But rows that all
-	// fail normalisation mean the model produced the right shape with unusable
-	// contents, which is exactly what a resend can fix.
 	if len(raw) > 0 && len(items) == 0 {
 		return nil, errUnreadable
 	}
 	return items, nil
 }
 
-// stripCodeFence unwraps a ```json ... ``` block. Structured outputs should
-// never produce one, but a provider that quietly ignores response_format often
-// does, and unwrapping is cheaper than a resend that hits the same provider.
+// stripCodeFence unwraps a ```json ... ``` block.
 func stripCodeFence(s string) string {
 	t := strings.TrimSpace(s)
 	if !strings.HasPrefix(t, "```") {

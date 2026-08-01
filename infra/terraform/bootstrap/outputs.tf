@@ -1,29 +1,30 @@
 output "state_bucket" {
-  description = "Set this as AWS_TF_STATE_BUCKET in GitHub Actions secrets."
-  value       = aws_s3_bucket.state.id
+  description = "GCS bucket name for Terraform backend state."
+  value       = google_storage_bucket.state.name
 }
 
-output "deploy_role_arn" {
-  description = "Set this as AWS_DEPLOY_ROLE_ARN in GitHub Actions secrets."
-  value       = aws_iam_role.deploy.arn
+output "workload_identity_provider" {
+  description = "GCP Workload Identity Provider full name."
+  value       = google_iam_workload_identity_pool_provider.github.name
 }
 
-output "lambda_exec_role_arn" {
-  description = "Consumed by the app stack as TF_VAR_lambda_exec_role_arn / -var."
-  value       = aws_iam_role.lambda_exec.arn
+output "deploy_service_account" {
+  description = "Service account email for deployment."
+  value       = google_service_account.deploy.email
 }
 
-output "ecr_repository_url" {
-  description = "Push target for the deploy workflow."
-  value       = aws_ecr_repository.plated.repository_url
+output "artifact_registry_repository" {
+  description = "Artifact Registry repository ID."
+  value       = google_artifact_registry_repository.plated.name
 }
 
 output "github_secrets" {
-  description = "Everything the server-deploy workflow needs, ready to paste."
+  description = "Required environment variables & secrets for server-deploy workflow."
   value = {
-    AWS_REGION           = var.aws_region
-    AWS_DEPLOY_ROLE_ARN  = aws_iam_role.deploy.arn
-    AWS_TF_STATE_BUCKET  = aws_s3_bucket.state.id
-    AWS_LAMBDA_EXEC_ROLE = aws_iam_role.lambda_exec.arn
+    GCP_PROJECT_ID             = var.gcp_project_id
+    GCP_REGION                 = var.gcp_region
+    WORKLOAD_IDENTITY_PROVIDER = google_iam_workload_identity_pool_provider.github.name
+    GCP_DEPLOY_SERVICE_ACCOUNT = google_service_account.deploy.email
+    GCP_TF_STATE_BUCKET        = google_storage_bucket.state.name
   }
 }

@@ -1,49 +1,45 @@
 # Deploying
 
-Two independent pipelines, plus a one-time AWS bootstrap.
+Two independent pipelines, plus a one-time GCP bootstrap.
 
 | Workflow | Trigger | Does |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | every push and PR | `flutter analyze`/`test`, `gofmt`/`go vet`/`go test`, `terraform fmt`/`validate` |
-| `.github/workflows/server-deploy.yml` | push to `main` touching `server/**` or `infra/terraform/app/**` | image → ECR → Lambda, then smoke-tests `/healthz` |
+| `.github/workflows/server-deploy.yml` | push to `main` touching `server/**` or `infra/terraform/app/**` | image → Artifact Registry → Cloud Run, then smoke-tests `/healthz` |
 | `.github/workflows/flutter-release.yml` | manual, or a `v*` tag | Shorebird patch **or** release, publishes APK + AAB |
 
 ---
 
-## One-time AWS bootstrap
+## One-time GCP bootstrap
 
 `infra/terraform/bootstrap` holds the things CI cannot create for itself: the state bucket, the
-GitHub OIDC trust, the ECR repository, and both IAM roles. Apply it once, by hand, with admin
-credentials.
+GitHub Workload Identity Federation (WIF) OIDC trust, the Artifact Registry repository, and the deploy service account. Apply it once, by hand, with admin credentials.
 
 ```bash
 cd infra/terraform/bootstrap
 terraform init
-terraform apply            # override -var name_prefix=… -var github_repo=… if you renamed things
+terraform apply -var gcp_project_id=YOUR_PROJECT_ID   # override -var name_prefix=… if needed
 terraform output github_secrets
 ```
 
 Its state is local and **not** committed. Losing it is recoverable — every resource is named
 deterministically, so a fresh `apply` after `terraform import` picks the same names back up.
 
-The Lambda execution role lives in this stack rather than the app stack on purpose: if the app
-stack created it, the deploy role would need `iam:CreateRole`, which is close enough to account
-admin to make the OIDC trust boundary pointless. As written the deploy role's only IAM power is
-`iam:PassRole` on that one ARN.
-
 ## GitHub secrets
 
-`terraform output github_secrets` prints the first four.
+`terraform output github_secrets` prints the GCP secrets needed for CI.
 
 | Secret | Used by | Notes |
 | --- | --- | --- |
-| `AWS_REGION` | server-deploy | e.g. `us-east-1` |
-| `AWS_DEPLOY_ROLE_ARN` | server-deploy | OIDC role; no access keys anywhere |
-| `AWS_TF_STATE_BUCKET` | server-deploy | backend config for the app stack |
-| `AWS_LAMBDA_EXEC_ROLE` | server-deploy | passed as `TF_VAR_lambda_exec_role_arn` |
-| `OPENROUTER_API_KEY` | server-deploy | leave unset for a first deploy — see below |
-| `PLATE_API_TOKEN` | **both** | Lambda env var *and* the app's dart-define. One value, both places. |
-| `PLATE_API_URL` | flutter-release | the function URL, available only after the first deploy |
+| `GCP_PROJECT_ID` | server-deploy | e.g. `my-gcp-project` |
+| `GCP_REGION` | server-deploy | e.g. `us-central1` |
+| `WORKLOAD_IDENTITY_PROVIDER` | server-deploy | OIDC provider resource name |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | server-deploy | Deploy service account email |
+| `GCP_TF_STATE_BUCKET` | server-deploy | GCS bucket name for the app stack backend |
+| `PLATE_API_TOKEN` | **both** | Cloud Run env var *and* the app's dart-define. One value, both places. |
+| `PLATE_API_URL` | flutter-release | the Cloud Run URL, available after the first deploy |
+| `OPENROUTER_API_KEY` | server-deploy | optional; only needed if targeting openrouter provider models |
+
 | `SHOREBIRD_TOKEN` | flutter-release | Shorebird console → Account → API Keys |
 | `ANDROID_KEYSTORE_BASE64` | flutter-release | see below |
 | `ANDROID_KEYSTORE_PASSWORD` | flutter-release | |

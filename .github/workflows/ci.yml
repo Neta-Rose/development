@@ -110,9 +110,9 @@ jobs:
       - name: fmt
         run: terraform fmt -check -recursive -diff infra/
 
-      # -backend=false so this needs no AWS credentials at all. That is the reason the
-      # deploy role's trust policy excludes pull requests: a PR can be validated without
-      # ever being able to reach AWS.
+      # -backend=false so this needs no GCP credentials at all. That is the reason the
+      # deploy service account's trust policy excludes pull requests: a PR can be validated without
+      # ever being able to reach GCP.
       - name: validate
         run: |
           for dir in infra/terraform/*/; do

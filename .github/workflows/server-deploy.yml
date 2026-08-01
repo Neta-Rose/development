@@ -1,11 +1,11 @@
 name: Deploy server
 
-# Builds server/ into an arm64 container image, pushes it to ECR, and applies the Terraform
-# app stack against that exact image tag.
+# Builds server/ into a container image, pushes it to GCP Artifact Registry, and applies the Terraform
+# app stack against that exact image tag on GCP Cloud Run.
 #
 # Pull requests are not handled here on purpose: they get `terraform validate` in ci.yml,
-# which needs no credentials. The deploy role's trust policy admits only refs/heads/main, so
-# a PR cannot reach AWS even if a workflow file in it asks to.
+# which needs no credentials. The deploy service account trust policy admits only refs/heads/main, so
+# a PR cannot reach GCP even if a workflow file in it asks to.
 
 on:
   push:
@@ -22,11 +22,12 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write # OIDC: the only credential in play, minted per run
+  id-token: write # OIDC: Workload Identity Federation authentication
   contents: read
 
 env:
   TERRAFORM_VERSION: 1.14.3
+  GCP_REGION: us-central1
 
 jobs:
   deploy:
@@ -45,70 +46,45 @@ jobs:
         working-directory: server
         run: go vet ./... && go test ./...
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - id: auth
+        uses: google-github-actions/auth@v2
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      # Created by the bootstrap stack. If this fails, that stack has not been applied — see
-      # docs/DEPLOY.md.
-      - name: Resolve ECR repository
-        id: repo
-        env:
-          NAME: healthapp-plated
-        run: |
-          set -euo pipefail
-          if ! url=$(aws ecr describe-repositories --repository-names "$NAME" \
-                       --query 'repositories[0].repositoryUri' --output text 2>&1); then
-            echo "::error::ECR repository '$NAME' not found. Apply infra/terraform/bootstrap first."
-            echo "$url"
-            exit 1
-          fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-
       - uses: docker/setup-buildx-action@v3
 
-      # No QEMU setup step: server/Dockerfile pins its builder stage to $BUILDPLATFORM and
-      # cross-compiles with GOARCH=arm64, so the only arm64 layer is the final one and
-      # nothing foreign executes during the build.
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: server
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
-          tags: ${{ steps.repo.outputs.url }}:${{ github.sha }}
+          tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/healthapp-plated/server:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Required, not tidiness: with provenance on, buildx pushes an image *index* with an
-          # extra attestation manifest, and Lambda accepts only a single-architecture manifest.
-          # Leaving it on fails at CreateFunction with an unhelpful "manifest ... not supported".
-          provenance: false
 
       - name: Terraform init
         working-directory: infra/terraform/app
         run: |
           terraform init -input=false \
-            -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
-            -backend-config="region=${{ secrets.AWS_REGION }}"
+            -backend-config="bucket=${{ secrets.GCP_TF_STATE_BUCKET }}"
 
       - name: Terraform apply
         working-directory: infra/terraform/app
         env:
-          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_gcp_region: ${{ env.GCP_REGION }}
           TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_lambda_exec_role_arn: ${{ secrets.AWS_LAMBDA_EXEC_ROLE }}
-          # Lambda cannot resolve a secret ARN into an env var the way ECS can, so these
-          # values pass through Terraform and land in remote state. That is why the state
-          # bucket is private, encrypted and versioned. PLATE_API_TOKEN is the same secret
-          # the Flutter workflow bakes in as a dart-define — one source of truth for both.
           TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
           TF_VAR_plate_api_token: ${{ secrets.PLATE_API_TOKEN }}
         run: |
@@ -117,12 +93,12 @@ jobs:
 
       # Proves the deploy is actually serving, not merely that the API calls returned.
       # /healthz answers 200 even unconfigured, so the assertion is on the body: configured
-      # false here means OPENROUTER_API_KEY never made it into the function's environment.
+      # false here means detection credentials are missing from the environment.
       - name: Smoke test
         working-directory: infra/terraform/app
         run: |
           set -euo pipefail
-          url=$(terraform output -raw function_url)
+          url=$(terraform output -raw cloud_run_url)
           echo "endpoint: $url"
 
           body=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "${url%/}/healthz")
@@ -133,8 +109,8 @@ jobs:
             exit 1
           fi
           if ! grep -q '"configured":true' <<<"$body"; then
-            echo "::error::server reports configured=false — OPENROUTER_API_KEY is missing from"
-            echo "::error::the Lambda environment. Detection will return 503 not_configured."
+            echo "::error::server reports configured=false — detection credentials are missing"
+            echo "::error::from the Cloud Run environment. Detection will return 503 not_configured."
             exit 1
           fi
 

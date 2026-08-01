@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 )
 
 // Sentinel failures. Each maps to exactly one error code on the way out and to
@@ -185,10 +186,11 @@ func (c *openRouterClient) complete(
 	return choice.Message.Content, nil
 }
 
-// classifyTransportError separates "we ran out of time" from "we could not get
-// there", because the two produce different copy and only one of them is worth a
-// retry button that behaves differently.
+// classifyTransportError separates timeouts, connection errors, and upstream status failures.
 func classifyTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return errTimeout
 	}
@@ -197,9 +199,17 @@ func classifyTransportError(err error) error {
 		return errTimeout
 	}
 	if errors.Is(err, context.Canceled) {
-		// The caller went away — most often the app cancelled. Nothing is
-		// rendered for it, but it is not a connection fault either.
 		return context.Canceled
+	}
+	var upstream *upstreamError
+	if errors.As(err, &upstream) {
+		return upstream
+	}
+	errMsg := err.Error()
+	for _, code := range []int{400, 401, 403, 404, 429, 500, 502, 503, 504} {
+		if strings.Contains(errMsg, fmt.Sprintf("status %d", code)) || strings.Contains(errMsg, fmt.Sprintf("status code %d", code)) || strings.Contains(errMsg, fmt.Sprintf("%d", code)) {
+			return &upstreamError{Status: code}
+		}
 	}
 	return errNoConnection
 }

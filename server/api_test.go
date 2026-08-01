@@ -33,7 +33,7 @@ func newTestAPI(t *testing.T, cfgFn func(*Config), upstream http.HandlerFunc) *A
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewAPI(cfg, NewDetector(cfg, newOpenRouterClient(cfg, srv.Client())), log)
+	return NewAPI(cfg, NewDetector(cfg, NewProviderFactory(cfg, srv.Client())), log)
 }
 
 func postDetect(t *testing.T, api *API, body any, headers map[string]string) *httptest.ResponseRecorder {

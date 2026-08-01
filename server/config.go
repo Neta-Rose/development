@@ -42,11 +42,19 @@ type Config struct {
 	Referer string
 	Title   string
 
-	// AuthToken, when set, is required from clients as
-	// `Authorization: Bearer <token>`. Empty means the endpoint is open, which
-	// is logged loudly at startup — an open endpoint spends our OpenRouter
-	// credit for whoever finds it.
+	// AuthToken, when set, is required from clients as `Authorization: Bearer <token>`.
 	AuthToken string
+
+	// GCP / Vertex AI configuration
+	GCPProjectID string
+	GCPLocation  string
+
+	// AWS / Bedrock configuration
+	AWSRegion string
+
+	// OpenAI configuration
+	OpenAIAPIKey   string
+	OpenAIEndpoint string
 
 	// MaxShots caps images per request. The client caps at the same number; this
 	// is the copy that a hostile caller cannot edit.
@@ -66,26 +74,31 @@ type Config struct {
 }
 
 const (
-	defaultModel    = "google/gemini-2.5-flash"
+	defaultModel    = "vertex:gemini-2.5-flash"
 	defaultEndpoint = "https://openrouter.ai/api/v1/chat/completions"
 )
 
-// modelIDPattern is what a request-supplied model id may contain. OpenRouter
-// ids look like `vendor/name:variant`; anything else is refused rather than
-// forwarded, since the value lands in a JSON body we sign with our key.
-var modelIDPattern = regexp.MustCompile(`^[A-Za-z0-9._\-]+/[A-Za-z0-9._\-]+(:[A-Za-z0-9._\-]+)?$`)
+// modelIDPattern accepts model IDs such as `openrouter:google/gemini-2.5-flash`,
+// `vertex:gemini-2.5-flash`, `bedrock:us.anthropic.claude-3-5-sonnet:0`, `openai:gpt-4o`,
+// or unprefixed IDs like `google/gemini-2.5-flash`.
+var modelIDPattern = regexp.MustCompile(`^([A-Za-z0-9._\-]+:[A-Za-z0-9._\-]+(/[A-Za-z0-9._\-]+)?(:[A-Za-z0-9._\-]+)?|[A-Za-z0-9._\-]+/[A-Za-z0-9._\-]+(:[A-Za-z0-9._\-]+)?)$`)
 
 // LoadConfig reads the environment. It never returns the key in an error.
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		Addr:               listenAddr(),
 		APIKey:             strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
-		Model:              envString("OPENROUTER_MODEL", defaultModel),
+		Model:              envString("AI_MODEL", envString("OPENROUTER_MODEL", defaultModel)),
 		AllowModelOverride: envBool("ALLOW_MODEL_OVERRIDE", false),
 		Endpoint:           envString("OPENROUTER_ENDPOINT", defaultEndpoint),
 		Referer:            envString("OPENROUTER_REFERER", ""),
 		Title:              envString("OPENROUTER_TITLE", "healthapp plate detection"),
 		AuthToken:          strings.TrimSpace(os.Getenv("PLATE_API_TOKEN")),
+		GCPProjectID:       strings.TrimSpace(os.Getenv("GCP_PROJECT_ID")),
+		GCPLocation:        envString("GCP_LOCATION", "us-central1"),
+		AWSRegion:          envString("AWS_REGION", envString("AWS_DEFAULT_REGION", "")),
+		OpenAIAPIKey:       strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+		OpenAIEndpoint:     envString("OPENAI_ENDPOINT", "https://api.openai.com/v1"),
 		MaxShots:           envInt("MAX_SHOTS", 8),
 		MaxRequestBytes:    int64(envInt("MAX_REQUEST_BYTES", 24<<20)),
 		UpstreamBudget:     envDuration("OPENROUTER_TIMEOUT", 24*time.Second),
@@ -97,7 +110,7 @@ func LoadConfig() (Config, error) {
 
 func (c Config) validate() error {
 	if !modelIDPattern.MatchString(c.Model) {
-		return errors.New("OPENROUTER_MODEL is not a valid model id")
+		return errors.New("AI_MODEL is not a valid model id")
 	}
 	if !strings.HasPrefix(c.Endpoint, "https://") &&
 		!strings.HasPrefix(c.Endpoint, "http://127.0.0.1") &&
@@ -119,8 +132,40 @@ func (c Config) validate() error {
 	return nil
 }
 
-// Configured reports whether detection can run at all.
-func (c Config) Configured() bool { return c.APIKey != "" }
+// Configured reports whether detection can run with any provider.
+func (c Config) Configured() bool {
+	return c.APIKey != "" || c.GCPProjectID != "" || c.AWSRegion != "" || c.OpenAIAPIKey != ""
+}
+
+// ParseModel splits a raw model string into provider key and provider model ID.
+// Unprefixed strings default to provider "openrouter".
+func (c Config) ParseModel(raw string) (provider string, modelID string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = c.Model
+	}
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) == 2 {
+		return strings.ToLower(parts[0]), parts[1]
+	}
+	return "openrouter", raw
+}
+
+// ProviderConfigured reports whether a specific provider has required credentials.
+func (c Config) ProviderConfigured(provider string) bool {
+	switch strings.ToLower(provider) {
+	case "openrouter":
+		return c.APIKey != ""
+	case "vertex", "gcp":
+		return c.GCPProjectID != ""
+	case "bedrock", "aws":
+		return c.AWSRegion != ""
+	case "openai":
+		return c.OpenAIAPIKey != ""
+	default:
+		return false
+	}
+}
 
 // ResolveModel picks the model for one request: the configured one, unless
 // overrides are enabled and the caller named a syntactically valid id.

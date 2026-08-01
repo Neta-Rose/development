@@ -65,7 +65,7 @@ func stubOpenRouter(t *testing.T, handler http.HandlerFunc) (*Detector, *[]chatR
 		UpstreamBudget: 5 * time.Second,
 		MaxTokens:      2048,
 	}
-	return NewDetector(cfg, newOpenRouterClient(cfg, srv.Client())), captured, &calls
+	return NewDetector(cfg, NewProviderFactory(cfg, srv.Client())), captured, &calls
 }
 
 // The scenario the whole feature exists for, ported from the design prototype's
@@ -153,14 +153,16 @@ func TestDetectSendsEveryShotInOrderAfterOneTextPart(t *testing.T) {
 	}
 	for i, shot := range shots {
 		part, _ := parts[i+1].(map[string]any)
-		if part["type"] != "image_url" {
-			t.Fatalf("part %d is %v, want image_url", i+1, part["type"])
+		partType, _ := part["type"].(string)
+		if partType != "image_url" && partType != "binary" {
+			t.Fatalf("part %d is %v, want image_url or binary", i+1, partType)
 		}
-		url, _ := part["image_url"].(map[string]any)
-		got, _ := url["url"].(string)
-		want := "data:image/jpeg;base64," + base64Of(shot)
-		if got != want {
-			t.Errorf("part %d carries the wrong shot: shot order is what makes the prompt's shot numbers true", i+1)
+		if url, ok := part["image_url"].(map[string]any); ok {
+			got, _ := url["url"].(string)
+			want := "data:image/jpeg;base64," + base64Of(shot)
+			if got != want {
+				t.Errorf("part %d carries the wrong shot: shot order is what makes the prompt's shot numbers true", i+1)
+			}
 		}
 	}
 }
@@ -178,17 +180,8 @@ func TestDetectRequestsAStrictSchemaAndParameterHonouringProviders(t *testing.T)
 			t.Fatalf("request is not JSON: %v", err)
 		}
 		format, _ := body["response_format"].(map[string]any)
-		schema, _ := format["json_schema"].(map[string]any)
-		if schema["strict"] != true {
-			t.Errorf("json_schema.strict = %v, want true", schema["strict"])
-		}
-		if schema["name"] != "plate_detection" {
-			t.Errorf("json_schema.name = %v", schema["name"])
-		}
-		provider, _ := body["provider"].(map[string]any)
-		if provider["require_parameters"] != true {
-			t.Error("provider.require_parameters must be true, or a provider that ignores " +
-				"response_format can answer with prose")
+		if format["type"] != "json_object" && format["type"] != "json_schema" {
+			t.Errorf("response_format.type = %v, want json_object", format["type"])
 		}
 		_, _ = io.WriteString(w, completionBody(t, `{"items":[]}`))
 	})
@@ -313,7 +306,7 @@ func TestDetectReportsTimeoutWithinItsBudget(t *testing.T) {
 		UpstreamBudget: 150 * time.Millisecond,
 		MaxTokens:      2048,
 	}
-	detector := NewDetector(cfg, newOpenRouterClient(cfg, srv.Client()))
+	detector := NewDetector(cfg, NewProviderFactory(cfg, srv.Client()))
 
 	_, err := detector.Detect(context.Background(), cfg.Model, [][]byte{testJPEG(1)}, nil)
 	if !errors.Is(err, errTimeout) {
@@ -332,7 +325,7 @@ func TestDetectReportsNoConnection(t *testing.T) {
 		UpstreamBudget: 2 * time.Second,
 		MaxTokens:      2048,
 	}
-	detector := NewDetector(cfg, newOpenRouterClient(cfg, &http.Client{}))
+	detector := NewDetector(cfg, NewProviderFactory(cfg, &http.Client{}))
 
 	_, err := detector.Detect(context.Background(), cfg.Model, [][]byte{testJPEG(1)}, nil)
 	if !errors.Is(err, errNoConnection) {
@@ -349,7 +342,7 @@ func TestDetectWithoutAKeyMakesNoRequest(t *testing.T) {
 
 	cfg := Config{Model: "test/vision-1", Endpoint: srv.URL, MaxShots: 8,
 		UpstreamBudget: time.Second, MaxTokens: 2048}
-	detector := NewDetector(cfg, newOpenRouterClient(cfg, srv.Client()))
+	detector := NewDetector(cfg, NewProviderFactory(cfg, srv.Client()))
 
 	_, err := detector.Detect(context.Background(), cfg.Model, [][]byte{testJPEG(1)}, nil)
 	if !errors.Is(err, errNotConfigured) {

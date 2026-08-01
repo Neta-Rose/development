@@ -8,6 +8,7 @@ import (
 func TestLoadConfigDefaults(t *testing.T) {
 	// t.Setenv restores the environment after the test, and forbids t.Parallel.
 	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("AI_MODEL", "")
 	t.Setenv("OPENROUTER_MODEL", "")
 	t.Setenv("ADDR", "")
 	t.Setenv("PORT", "")
@@ -36,7 +37,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 }
 
 func TestLoadConfigReadsTheModelAndPort(t *testing.T) {
-	t.Setenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
+	t.Setenv("AI_MODEL", "vertex:gemini-2.5-flash")
+	t.Setenv("OPENROUTER_MODEL", "")
 	t.Setenv("ADDR", "")
 	t.Setenv("PORT", "9999")
 	t.Setenv("OPENROUTER_TIMEOUT", "18")
@@ -45,7 +47,7 @@ func TestLoadConfigReadsTheModelAndPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.Model != "anthropic/claude-sonnet-4.5" {
+	if cfg.Model != "vertex:gemini-2.5-flash" {
 		t.Errorf("model = %q", cfg.Model)
 	}
 	if cfg.Addr != ":9999" {
@@ -58,7 +60,8 @@ func TestLoadConfigReadsTheModelAndPort(t *testing.T) {
 }
 
 func TestLoadConfigRejectsAMalformedModel(t *testing.T) {
-	t.Setenv("OPENROUTER_MODEL", "not a model id")
+	t.Setenv("AI_MODEL", "not a model id")
+	t.Setenv("OPENROUTER_MODEL", "")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("want an error for a malformed model id")
 	}
@@ -85,9 +88,43 @@ func TestResolveModel(t *testing.T) {
 	if got, err := open.ResolveModel("other/vision-2:free"); err != nil || got != "other/vision-2:free" {
 		t.Errorf("allowed override = %q, %v", got, err)
 	}
+	if got, err := open.ResolveModel("vertex:gemini-2.5-flash"); err != nil || got != "vertex:gemini-2.5-flash" {
+		t.Errorf("allowed vertex override = %q, %v", got, err)
+	}
 	for _, bad := range []string{"no-slash", "a//b", "vendor/name;rm -rf", `vendor/"name"`} {
 		if _, err := open.ResolveModel(bad); err == nil {
 			t.Errorf("ResolveModel(%q) was accepted", bad)
+		}
+	}
+}
+
+func TestParseModelAndProviderConfigured(t *testing.T) {
+	cfg := Config{
+		APIKey:       "sk-openrouter-key",
+		GCPProjectID: "my-gcp-project",
+		AWSRegion:    "us-east-1",
+		OpenAIAPIKey: "sk-openai-key",
+	}
+
+	tests := []struct {
+		raw          string
+		wantProvider string
+		wantModelID  string
+	}{
+		{"openrouter:google/gemini-2.5-flash", "openrouter", "google/gemini-2.5-flash"},
+		{"vertex:gemini-2.5-flash", "vertex", "gemini-2.5-flash"},
+		{"bedrock:us.anthropic.claude-3-5-sonnet:0", "bedrock", "us.anthropic.claude-3-5-sonnet:0"},
+		{"openai:gpt-4o", "openai", "gpt-4o"},
+		{"google/gemini-2.5-flash", "openrouter", "google/gemini-2.5-flash"},
+	}
+
+	for _, tc := range tests {
+		gotP, gotM := cfg.ParseModel(tc.raw)
+		if gotP != tc.wantProvider || gotM != tc.wantModelID {
+			t.Errorf("ParseModel(%q) = (%q, %q), want (%q, %q)", tc.raw, gotP, gotM, tc.wantProvider, tc.wantModelID)
+		}
+		if !cfg.ProviderConfigured(gotP) {
+			t.Errorf("ProviderConfigured(%q) = false, want true", gotP)
 		}
 	}
 }

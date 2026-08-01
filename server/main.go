@@ -24,9 +24,9 @@ func main() {
 	// when the service reports `not_configured`, and this lets a deploy be
 	// health-checked before the secret exists.
 	if !cfg.Configured() {
-		log.Warn("OPENROUTER_API_KEY is empty; detection will report not_configured")
+		log.Warn("No AI provider keys configured; detection will report not_configured")
 	}
-	// An open endpoint spends our OpenRouter credit for anyone who finds it.
+	// An open endpoint spends our credit for anyone who finds it.
 	if cfg.AuthToken == "" {
 		log.Warn("PLATE_API_TOKEN is empty: /v1/plate/detect is UNAUTHENTICATED. " +
 			"Set it, or keep this service off the public internet.")
@@ -48,7 +48,8 @@ func main() {
 		},
 	}
 
-	api := NewAPI(cfg, NewDetector(cfg, newOpenRouterClient(cfg, httpClient)), log)
+	factory := NewProviderFactory(cfg, httpClient)
+	api := NewAPI(cfg, NewDetector(cfg, factory), log)
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,
