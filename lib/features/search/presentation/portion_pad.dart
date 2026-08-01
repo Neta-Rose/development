@@ -60,7 +60,6 @@ class _PortionPadState extends ConsumerState<PortionPad>
     final p when p.portionLabel != null => formatQty(p.qty!),
     final p => formatGrams(p.grams),
   };
-  late String _placeholderAmt = _amt;
   late String? _unit = widget.initial == null
       ? null
       : widget.initial!.portionLabel ?? 'g';
@@ -271,7 +270,6 @@ class _PortionPadState extends ConsumerState<PortionPad>
             setState(() {
               _unit = next.label;
               _amt = nextAmt;
-              if (_isPlaceholder) _placeholderAmt = nextAmt;
             });
           },
           child: Container(
