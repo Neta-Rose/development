@@ -26,6 +26,7 @@ func NewAPI(cfg Config, detector *Detector, log *slog.Logger) *API {
 func (a *API) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.handleHealth)
+	mux.HandleFunc("GET /health", a.handleHealth)
 	mux.HandleFunc("POST /v1/plate/detect", a.handleDetect)
 	return mux
 }

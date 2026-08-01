@@ -92,7 +92,7 @@ jobs:
           terraform apply -input=false -auto-approve tfplan
 
       # Proves the deploy is actually serving, not merely that the API calls returned.
-      # /healthz answers 200 even unconfigured, so the assertion is on the body: configured
+      # /health answers 200 even unconfigured, so the assertion is on the body: configured
       # false here means detection credentials are missing from the environment.
       - name: Smoke test
         working-directory: infra/terraform/app
@@ -101,11 +101,11 @@ jobs:
           url=$(terraform output -raw cloud_run_url)
           echo "endpoint: $url"
 
-          body=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "${url%/}/healthz")
+          body=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "${url%/}/health")
           echo "$body"
 
           if ! grep -q '"status":"ok"' <<<"$body"; then
-            echo "::error::/healthz did not report ok"
+            echo "::error::/health did not report ok"
             exit 1
           fi
           if ! grep -q '"configured":true' <<<"$body"; then
