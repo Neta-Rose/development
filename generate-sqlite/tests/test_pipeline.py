@@ -769,9 +769,11 @@ def test_items_group_on_identity_not_on_macros():
 def test_a_dish_is_never_a_preparation_of_its_ingredient():
     """fdc_id 169712 (white rice) and 167668 (fried rice) were one item.
 
-    Two separations do it: different base names, and — even if canon.py were to
-    hand back the same base name — the ingredient/dish split, which is why
-    food_kind is in the grouping key rather than merely recorded.
+    What separates them is their base names. The ingredient/dish split used to
+    separate them a second time, on the grounds that it could not be argued
+    with even if canon.py handed back one base name for both; the vote in
+    :func:`cluster._voted_kinds` is that argument, so the guarantee is now the
+    narrower one asserted below.
     """
     _, _, links = cluster.build_clusters(_cluster_frame([
         (169712, "Rice, white, steamed, Chinese restaurant", "white rice",
@@ -782,28 +784,52 @@ def test_a_dish_is_never_a_preparation_of_its_ingredient():
     group_of = dict(zip(links["fdc_id"], links["merged_food_id"]))
     assert group_of[169712] != group_of[167668]
 
-    # the kind guard alone, with the base names deliberately collided
-    _, _, same_name = cluster.build_clusters(_cluster_frame([
-        (1, "Rice", "rice", "ingredient", "boiled", 2.4, 33.9, 0.2),
-        (2, "Rice dish", "rice", "dish", None, 2.4, 33.9, 0.2),
+    # With the base names deliberately collided and every member spelling the
+    # identity the same way, the disagreement is the model contradicting itself
+    # and the majority takes all three into one item.
+    _, _, one_spelling = cluster.build_clusters(_cluster_frame([
+        (1, "Rice", "white rice", "ingredient", "boiled", 2.4, 33.9, 0.2),
+        (2, "Rice, white", "white rice", "ingredient", "steamed", 2.4, 33.9, 0.2),
+        (3, "Rice dish", "white rice", "dish", None, 2.4, 33.9, 0.2),
     ]))
-    assert same_name["merged_food_id"][0] != same_name["merged_food_id"][1]
+    assert one_spelling["merged_food_id"].n_unique() == 1
+
+    # ... and it declines where they are written two ways, which is the only
+    # place the kind guard was ever load-bearing: two spellings of one key are
+    # what a token sort collides, so the two kinds may be two foods.
+    _, _, two_spellings = cluster.build_clusters(_cluster_frame([
+        (1, "Rice", "white rice", "ingredient", "boiled", 2.4, 33.9, 0.2),
+        (2, "Rice, white", "white rice", "ingredient", "steamed", 2.4, 33.9, 0.2),
+        (3, "Rice dish", "rice, white", "dish", None, 2.4, 33.9, 0.2),
+    ]))
+    assert two_spellings["merged_food_id"].n_unique() == 2
 
 
-def test_a_disagreeing_kind_is_reported_not_silently_voted_on(con):
-    """The one failure mode food_kind-in-the-key introduces.
+def test_a_disagreeing_kind_is_voted_on_unless_the_identity_is_written_two_ways(con):
+    """The reversal: a disagreement is resolved, not reported.
 
     Two records of one food that straddled a canonicalization batch boundary
-    can come back with different kinds and then split into two items. It is
-    reported rather than majority-voted: forcing a vote would re-open the bug
-    the stage exists to close, because two genuinely different foods that
-    collided on a base name would then merge.
+    come back with different kinds and used to split into two items. Across the
+    whole corpus not one of the 121 such identities was a real
+    ingredient-versus-dish call, so the majority now decides for all of them
+    and ties break to "ingredient".
+
+    The gate is the several-spellings set, not the kinds: where the identity
+    was written more than one way the token sort may have collided two foods,
+    and there the split is left standing — 8 identities on the corpus, which is
+    what this list now counts.
     """
     assert cluster.run(con)["kind_splits"] == []
     con.execute("UPDATE foods SET food_kind = 'dish' WHERE fdc_id = 3")
     out = cluster.run(con)
+    assert out["kind_splits"] == [], "one spelling, so the disagreement is voted on"
+    assert out["items"] == 2, "the 1-1 tie broke to ingredient and the extra item is gone"
+
+    # ... and the same disagreement written two ways keeps its extra item.
+    canonicalize(con, {3: ("beef ground", "dish", "cooked")})
+    out = cluster.run(con)
     assert out["kind_splits"] == ["beef ground"]
-    assert out["items"] == 3, "the disagreement really does cost an extra item"
+    assert out["items"] == 3, "the vote declined, so the split really does cost an item"
 
 
 def test_an_identity_written_two_ways_is_reported_as_a_set(con):

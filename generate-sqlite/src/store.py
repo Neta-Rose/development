@@ -53,7 +53,10 @@ CREATE TABLE IF NOT EXISTS foods (
     -- base_name is the identity with every preparation, grade and trim word
     -- removed; base_key is its normalized form and is what Stage 3b GROUPs BY,
     -- so these two columns ARE the clustering. food_kind ('ingredient' /
-    -- 'dish') is the hard guard that keeps fried rice out of white rice.
+    -- 'dish') keeps fried rice out of white rice, but per identity rather than
+    -- per row: where one identity's records disagree, Stage 3b votes on them
+    -- (cluster._voted_kinds) and what is stored here stays what the model said
+    -- about this one record.
     base_name TEXT,
     base_key TEXT,
     food_kind TEXT,

@@ -176,8 +176,25 @@ the search list) holding one or more **preparations** (the variant selector).
 
 **An item is every food sharing a `base_key` and a `food_kind`.** Identity is a
 key, not a pairwise test, and that is the design: a key is transitive for free.
-`food_kind` is in the key rather than merely recorded, so the ingredient/dish
-separation holds even if canonicalization hands back the same base name twice.
+`food_kind` is in the key rather than merely recorded, so a dish is never a
+preparation of the ingredient it is made of — but it is read **per identity,
+not per row**.
+
+**Where one identity's own records disagree about its kind, the majority
+decides** and ties break to `ingredient` (`_voted_kinds`). Measured on the
+13,694-food corpus, 121 identities disagreed and not one of them was a real
+ingredient-versus-dish call — broccoli is 22 ingredient records against 1
+(`Broccoli, cooked, as ingredient`), plum 14 against 1 — so each was a food
+appearing twice in the search list. The vote is derived on every run and never
+written back; the stored `food_kind` stays what Stage 3b-1 said about that one
+record, which is also what Stage 4 is sent.
+
+**It declines where the identity was written more than one way**
+(`spelling_splits`), and that exemption is the safety gate: those are the keys
+the token sort merged, so their two kinds may be two foods. 8 of the 121 are in
+that set — `chocolate milk`, where "Candies, milk chocolate" keys onto the
+beverage, among them — and they stay split. The vote merged the other 113,
+taking the corpus from 6,798 items to 6,685.
 
 Within an item, preparations start from the Stage 3b-1 labels and are then
 **merged** where the macros agree, taking the widest label that covers them

@@ -364,7 +364,8 @@ assert set(MERGE_MACRO_KEYS) <= set(APP_NUTRIENTS)
 
 # Identity is NOT decided here any more. It is a key — the normalized
 # base_name Stage 3b-1 extracted — and two foods are the same item when that
-# key and food_kind match, full stop.
+# key matches and their food_kind agrees, with a disagreement inside one key
+# voted on rather than split (cluster._voted_kinds). No threshold either way.
 #
 # The two thresholds that used to live here (CLUSTER_JACCARD over description
 # tokens, MERGE_DISTANCE over the protein/carb/fat simplex) are gone, and so is

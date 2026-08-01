@@ -18,7 +18,12 @@
   because the preparation split changes basis on it and runs before the LLM.
 - **Identity is a key, never a threshold.** `foods.base_key` + `food_kind` IS the
   clustering; `cluster.base_key()` is the one normalization and `store.apply_canonicalization`
-  derives it on write so the writer and the reader cannot drift. Macros decide
+  derives it on write so the writer and the reader cannot drift. The `food_kind` half is
+  read **per identity, not per row**: where one `base_key`'s records disagree,
+  `cluster._voted_kinds` takes the majority (ties to `ingredient`) and declines on the
+  identities `cluster.spelling_splits` flags, which is the gate that keeps a token-sort
+  collision from merging. It is derived on every run and **never written** — the stored
+  `food_kind` stays what Stage 3b-1 said about that one record. Macros decide
   preparations and nothing else — the two thresholds that used to decide identity were
   removed with measurements, and the README's *Clustering* section is that record. Do
   not reintroduce a similarity score here; fix the canon.py prompt instead.

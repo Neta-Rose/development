@@ -344,6 +344,13 @@ def _(mo):
     ingredient it is made of: fried rice cannot join white rice, whatever the
     words or the numbers say.
 
+    Where one identity's own records disagree about its kind — the model
+    contradicting itself across two requests, never a real distinction in the
+    121 cases measured — the **majority** decides and ties break to
+    `ingredient`. It declines on identities written more than one way, since
+    those are the ones the token sort may have collided; that is the safety
+    gate, and it is what the count below is now reporting.
+
     Within an item, preparations start from the labels Stage 3b-1 read off the
     descriptions and are then **merged** where the macros agree — grilled,
     boiled and baked land on one profile and become one preparation called
@@ -380,7 +387,8 @@ def _(cluster, cluster_button, con, mo):
         f"- {_c['variable_fat']:,} span fat levels (`variable_fat`)\n"
         f"- largest item: {_c['largest_item']:,} foods\n\n"
         f"Corpus quality — watch these move:\n\n"
-        f"- {len(_c['kind_splits']):,} identities disagree on ingredient/dish\n"
+        f"- {len(_c['kind_splits']):,} identities kept an ingredient/dish split "
+        f"the vote declined to resolve\n"
         f"- {len(_c['spelling_splits']):,} identities are written more than one way\n"
         f"- {len(_c['leaked_cooking_words']):,} identities leaked a cooking word "
         f"and cost a duplicate item\n"
@@ -390,10 +398,11 @@ def _(cluster, cluster_button, con, mo):
         f"(membership changed), {_c['dissolved']:,} dissolved.\n"
         + (f"\n⚠️ {_c['uncanonicalized']:,} foods have no `base_name` and are "
            "singleton items — run Stage 3b-1.\n" if _c["uncanonicalized"] else "")
-        + (f"\n⚠️ {len(_c['kind_splits'])} identities are split by a disagreeing "
-           "`food_kind`, so each is two items instead of one: "
-           f"`{'`, `'.join(_c['kind_splits'][:8])}`. Re-canonicalize just those "
-           "foods (`UPDATE foods SET base_name = NULL WHERE base_key IN (…)`).\n"
+        + (f"\n⚠️ {len(_c['kind_splits'])} identities disagree on `food_kind` AND "
+           "are written more than one way, so the vote declined and each is two "
+           f"items instead of one: `{'`, `'.join(_c['kind_splits'][:8])}`. Fixing "
+           "the spelling is what resolves them — re-canonicalize just those foods "
+           "(`UPDATE foods SET base_name = NULL WHERE base_key IN (…)`).\n"
            if _c["kind_splits"] else "")
         + ("\n⚠️ An item this large is two foods sharing a base name — find it "
            "in the Stage 3b-1 table above and fix the prompt, not a threshold."

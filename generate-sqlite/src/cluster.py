@@ -10,9 +10,10 @@ selector).
 **Identity is a key here, not a pairwise test.** Stage 3b-1 (``canon.py``) has
 already read each food's ``base_name`` — its identity with every preparation,
 grade and trim word removed — so an item is just every food sharing a
-``base_key`` and a ``food_kind``. Being a key rather than a relation is the
-point: a key is transitive for free, which is exactly what the greedy
-complete-linkage machinery this replaced existed to fake.
+``base_key`` and a ``food_kind``, the latter voted per identity by
+:func:`_voted_kinds`. Being a key rather than a relation is the point: a key is
+transitive for free, which is exactly what the greedy complete-linkage
+machinery this replaced existed to fake.
 
 What went away with it, and why (all measured on the 13,694-food corpus):
 
@@ -442,43 +443,116 @@ def _row(record: dict) -> dict:
     }
 
 
-def build_groups(rows: list[dict]) -> list[list[dict]]:
-    """Partition foods into items: one per (base_key, food_kind).
+def _voted_kinds(rows: list[dict]) -> dict[str, str]:
+    """The one ``food_kind`` each disagreeing identity is grouped under.
 
-    ``food_kind`` is in the key and is not decoration. It is the rule that a
-    dish is never a preparation of the ingredient it is made of, enforced where
-    it cannot be argued with: even if canon.py were to hand back the same base
-    name for "fried rice" and "white rice", the ingredient/dish split still
-    keeps them two items.
+    Only identities whose records disagree appear here, and only where the vote
+    is allowed to run — everything else keeps the kind its own record carries,
+    so this is a small override map rather than a second copy of the key.
+
+    **A disagreement is model noise, not a distinction.** An identity whose
+    records straddle a canonicalization batch boundary comes back "ingredient"
+    in one batch and "dish" in the next, and then splits into two search rows
+    for one food. Inspected across the whole corpus, not one of the 121 such
+    identities was a real ingredient-versus-dish call: broccoli is 22
+    ingredient records against 1 dish ("Broccoli, cooked, as ingredient"), plum
+    14 against 1, asparagus 13 against 11. So the majority wins, ties break to
+    "ingredient", and the item is whole again. The tiebreak is spelled out in
+    the sort key rather than left to ride on "ingredient" sorting after "dish",
+    which would silently become a different rule if a third kind were ever
+    added to ``config.FOOD_KINDS``.
+
+    **Except where :func:`spelling_splits` flags the identity**, where it
+    declines and the split stands. That exemption is the safety gate and it is
+    the reason a vote is safe at all: the identities most likely to hold two
+    genuinely different foods are exactly the ones ``base_key``'s token sort
+    merged, and there the kind is the only thing keeping them apart.
+    ``chocolate milk`` is that identity — "Candies, milk chocolate" keys onto
+    the beverage — and the gate is why a 535 kcal confectionery record does not
+    join the seven fluid-milk records the vote would otherwise have pulled it
+    in with. It does not *undo* the collision: that record already shares an
+    item with the twelve FNDDS "Chocolate milk, ..." rows that agree with it on
+    "ingredient", which is the 13-member group #14 describes and which only the
+    canonicalization prompt can separate. The gate's job is to not make it
+    twenty.
+
+    Measured on the shipped 13,694-food corpus: 121 identities disagree, 8 of
+    them are spelling-flagged and keep their split, and the other 113 are voted
+    into one item each — 6,798 items to 6,685, moving 675 foods and nothing
+    outside those 113 identities. 47 of the 113 were exact ties and all took
+    "ingredient". The spec projected 120 disagreeing and 0 remaining; the 121 is
+    the corpus at HEAD (#16's plural fold merged one more identity — the same
+    drift :func:`spelling_splits` measured), and the 8 are the gate doing its
+    job rather than a shortfall: the two sets were assumed disjoint and are not.
+
+    Derived here on every run, never written: the stored ``food_kind`` stays
+    exactly what Stage 3b-1 said about that one record, so this is re-derivable
+    after a re-canonicalization and costs nothing to change. The price is that
+    Stage 4 is sent the kind of the item's *representative* — 42 of the 113
+    voted items are represented by a minority-kind record, and their naming
+    request says "dish" where the item was voted "ingredient". Sending the vote
+    instead would mean either writing it down or teaching the enrichment query
+    to re-derive it in SQL; the field is real per record and this is the one
+    place that reads it per record.
+    """
+    exempt = spelling_splits(rows)
+    kinds: dict[str, list[str]] = {}
+    for row in rows:
+        kinds.setdefault(row["base_key"], []).append(row["food_kind"])
+    return {
+        key: max(set(votes), key=lambda k: (votes.count(k), k == "ingredient", k))
+        for key, votes in kinds.items()
+        if len(set(votes)) > 1 and key not in exempt
+    }
+
+
+def build_groups(rows: list[dict]) -> list[list[dict]]:
+    """Partition foods into items: one per (base_key, voted food_kind).
+
+    ``food_kind`` is in the key and is not decoration: it is the rule that a
+    dish is never a preparation of the ingredient it is made of, which is what
+    keeps "fried rice" out of "white rice".
+
+    It is read per identity rather than per row, and :func:`_voted_kinds` is
+    what reads it. Where an identity's own records disagree about their kind
+    the disagreement is the model contradicting itself rather than a
+    distinction, so the majority decides for all of them and the food is one
+    item again. The guard survives where it is load-bearing: an identity whose
+    members are written more than one way is exempt from the vote, so a
+    collision the token sort created is still split on kind alone.
 
     Sorted output so the item order — and therefore nothing at all, but also
     every diagnostic that prints it — is reproducible across runs.
     """
+    voted = _voted_kinds(rows)
     groups: dict[tuple[str, str], list[dict]] = {}
     for row in rows:
-        groups.setdefault((row["base_key"], row["food_kind"]), []).append(row)
+        key = row["base_key"]
+        groups.setdefault((key, voted.get(key, row["food_kind"])), []).append(row)
     return [groups[k] for k in sorted(groups)]
 
 
 def kind_splits(rows: list[dict]) -> list[str]:
-    """base_keys that two records disagree about the kind of.
+    """base_keys still split by a disagreement the vote declined to resolve.
 
-    The one failure mode putting food_kind in the grouping key introduces: a
-    food whose records straddle a canonicalization batch boundary can come back
-    labelled "ingredient" in one batch and "dish" in the next, and then splits
-    into two items.
+    Not every identity whose records disagree: those are voted and merged by
+    :func:`_voted_kinds`. What is left here is the residue the safety gate
+    holds back — an identity that both disagrees about its kind *and* was
+    written more than one way, where merging could join two different foods
+    rather than one food's two halves. 8 identities on the 13,694-food corpus,
+    down from 121 before the vote, and ``chocolate milk`` is one of them.
 
-    Reported, never auto-corrected. Forcing a majority vote would fix this at
-    the cost of re-opening the bug the whole stage exists to close — two
-    genuinely different foods that collided on a base name would then merge,
-    which is a wrong merge where this is only a duplicate row. Measured on the
-    first 200 foods of the corpus this list was empty, because the batching
-    orders siblings adjacently; when it is not, the fix is the prompt.
+    So it stays a defect worth reading, but a different one: it now counts
+    duplicate rows the pipeline has deliberately chosen over a possible wrong
+    merge, and the fix is the canonicalization prompt writing one spelling per
+    identity — which empties this list through :func:`spelling_splits` rather
+    than by agreeing about the kind.
     """
     kinds: dict[str, set[str]] = {}
     for row in rows:
         kinds.setdefault(row["base_key"], set()).add(row["food_kind"])
-    return sorted(k for k, v in kinds.items() if len(v) > 1)
+    voted = _voted_kinds(rows)
+    return sorted(k for k, v in kinds.items() if len(v) > 1 and k not in voted)
 
 
 def spelling_splits(rows: list[dict]) -> set[str]:
