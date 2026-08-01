@@ -10,12 +10,14 @@
 # one, and nothing in it executes at build time.
 
 FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24-alpine AS build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 WORKDIR /src
 # Copy go.mod and go.sum first to cache dependency downloads.
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /plated .
 
 FROM public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1 AS lwa
