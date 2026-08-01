@@ -1,0 +1,127 @@
+{
+ "intent": "pick_from_available",
+ "meal_slot": "dinner",
+ "no_db": true,
+ "explain_level": "full",
+ "n_suggestions": 3,
+ "budget_ms": 400,
+ "candidate_set": {
+  "source": "photo_extraction",
+  "items": [
+   {
+    "name": "grilled chicken breast",
+    "food_id": "fdc_171534",
+    "confidence": 0.91,
+    "food": {
+     "food_id": 171534,
+     "display_name": "Grilled chicken breast",
+     "category": "Poultry Products",
+     "emoji": "\ud83c\udf57",
+     "prep_type": "grilled",
+     "data_type": "sr_legacy_food",
+     "commonness": 0.7,
+     "serving_g": 196.0,
+     "serving_label": "piece",
+     "nutrition": {
+      "energy_kcal": 151.0,
+      "protein_g": 30.54,
+      "carb_g": 0.0,
+      "fat_g": 3.17,
+      "fiber_g": 0.0,
+      "sugar_g": 0.0,
+      "sat_fat_g": 0.992,
+      "sodium_mg": 52.0
+     }
+    },
+    "amount_hint_g": 180
+   },
+   {
+    "name": "white rice",
+    "food_id": "fdc_2708403",
+    "confidence": 0.88,
+    "food": {
+     "food_id": 2708403,
+     "display_name": "White rice",
+     "category": "Rice",
+     "emoji": "\ud83c\udf5a",
+     "prep_type": "cooked",
+     "data_type": "survey_fndds_food",
+     "commonness": 1.0,
+     "serving_g": 163.0,
+     "serving_label": "cup, cooked",
+     "nutrition": {
+      "energy_kcal": 129.0,
+      "protein_g": 2.67,
+      "carb_g": 27.99,
+      "fat_g": 0.28,
+      "fiber_g": 0.4,
+      "sugar_g": 0.05,
+      "sat_fat_g": 0.077,
+      "sodium_mg": 244.0
+     }
+    },
+    "amount_hint_g": 200
+   },
+   {
+    "name": "garlic shrimp",
+    "food_id": "fdc_171971",
+    "confidence": 0.86,
+    "food": {
+     "food_id": 171971,
+     "display_name": "Cooked shrimp",
+     "category": "Finfish and Shellfish Products",
+     "emoji": "\ud83e\udd90",
+     "prep_type": "cooked",
+     "data_type": "sr_legacy_food",
+     "commonness": 0.7,
+     "serving_g": null,
+     "serving_label": null,
+     "nutrition": {
+      "energy_kcal": 119.0,
+      "protein_g": 22.78,
+      "carb_g": 1.52,
+      "fat_g": 1.7,
+      "fiber_g": 0.0,
+      "sugar_g": 0.0,
+      "sat_fat_g": 0.521,
+      "sodium_mg": 947.0
+     }
+    },
+    "amount_hint_g": 120
+   },
+   {
+    "name": "greek salad",
+    "food_id": "fdc_2709830",
+    "confidence": 0.61,
+    "food": {
+     "food_id": 2709830,
+     "display_name": "Greek salad, no dressing",
+     "category": "Vegetable dishes",
+     "emoji": "\ud83e\udd57",
+     "prep_type": null,
+     "data_type": "survey_fndds_food",
+     "commonness": 0.4,
+     "serving_g": 105.0,
+     "serving_label": "cup",
+     "nutrition": {
+      "energy_kcal": 48.0,
+      "protein_g": 2.75,
+      "carb_g": 4.35,
+      "fat_g": 2.26,
+      "fiber_g": 1.5,
+      "sugar_g": 1.43,
+      "sat_fat_g": 0.859,
+      "sodium_mg": 246.0
+     }
+    }
+   }
+  ]
+ },
+ "constraints": [
+  {
+   "field": "nutrients.sodium_mg",
+   "op": "lte",
+   "value": 1500
+  }
+ ]
+}

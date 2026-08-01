@@ -145,7 +145,7 @@ final class BatchProvider extends $NotifierProvider<Batch, List<BatchItem>> {
   }
 }
 
-String _$batchHash() => r'0de917946b652f494e54a802421b41748c4ff2b2';
+String _$batchHash() => r'2e03d1338a791b12225c56ffa9ff21dd55618967';
 
 /// Foods staged on this screen. Nothing is written until [Batch.logAll]; the
 /// batch is screen-scoped, so leaving throws it away.

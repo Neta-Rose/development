@@ -6,6 +6,10 @@ abstract final class AppColors {
   static const navBg = Color(0xFF12140F);
   static const badgeBg = Color(0xFF222420);
   static const tile = Color(0xFF1A1C17);
+
+  /// Viewfinder and photo wells. Sits between [bg] and [navBg] so a camera
+  /// surface reads as recessed rather than as another tile.
+  static const cameraBg = Color(0xFF16180F);
   static const amber = Color(0xFFE5A44C);
   static const protein = Color(0xFFE5705C);
   static const carbs = Color(0xFF7FBF6A);

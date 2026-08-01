@@ -46,3 +46,8 @@ app.*.map.json
 /android/app/release
 .vercel
 .env*
+
+# Service-account key for the suggestion engine. TEMPORARY: it is bundled into
+# the client so a pre-public build can call Cloud Run directly. Never commit it,
+# and rotate it before any public release — see engine_client.dart.
+/secrets/

@@ -26,7 +26,7 @@ class HomeScreen extends ConsumerWidget {
           _header(summary),
           Expanded(child: _timeline(context, ref, hours)),
           _searchBar(context),
-          _bottomNav(),
+          _bottomNav(context),
         ],
       ),
     );
@@ -293,7 +293,6 @@ class HomeScreen extends ConsumerWidget {
     return '$n × $label';
   }
 
-  // The bottom nav is still a static placeholder — its screens aren't built.
   Widget _searchBar(BuildContext context) {
     return GestureDetector(
       onTap: () => context.push('/search'),
@@ -321,7 +320,8 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _bottomNav() {
+  // `trends` and `you` are still placeholders — their screens aren't built.
+  Widget _bottomNav(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 26),
       decoration: BoxDecoration(
@@ -333,32 +333,41 @@ class HomeScreen extends ConsumerWidget {
         children: [
           _navItem(Icons.receipt_long_outlined, 'today', active: true),
           _navItem(Icons.bar_chart, 'trends'),
-          Container(
-            width: 46,
-            height: 46,
-            decoration: const BoxDecoration(
-                color: AppColors.amber, shape: BoxShape.circle),
-            child: const Icon(Icons.add, size: 20, color: AppColors.bg),
+          GestureDetector(
+            onTap: () => context.push('/search'),
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: const BoxDecoration(
+                  color: AppColors.amber, shape: BoxShape.circle),
+              child: const Icon(Icons.add, size: 20, color: AppColors.bg),
+            ),
           ),
-          _navItem(Icons.auto_awesome_outlined, 'coach'),
+          _navItem(Icons.auto_awesome_outlined, 'coach',
+              onTap: () => context.push('/coach')),
           _navItem(Icons.person_outline, 'you'),
         ],
       ),
     );
   }
 
-  Widget _navItem(IconData icon, String label, {bool active = false}) {
-    return SizedBox(
-      width: 56,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 19, color: active ? AppColors.fg : _dim(.4)),
-          const SizedBox(height: 3),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 9, color: active ? AppColors.fg : _dim(.45))),
-        ],
+  Widget _navItem(IconData icon, String label,
+      {bool active = false, VoidCallback? onTap}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: 56,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 19, color: active ? AppColors.fg : _dim(.4)),
+            const SizedBox(height: 3),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 9, color: active ? AppColors.fg : _dim(.45))),
+          ],
+        ),
       ),
     );
   }

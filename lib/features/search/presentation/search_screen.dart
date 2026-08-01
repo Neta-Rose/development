@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
 import '../../home/data/catalog_repository.dart';
+import '../domain/picked_food.dart';
 import '../domain/portion.dart';
 import 'search_providers.dart';
 
@@ -14,17 +15,38 @@ double _unitG(FoodHit f) => f.servingG ?? 100;
 String? _unitLabel(FoodHit f) => f.servingG == null ? null : f.servingLabel;
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key, this.hour});
+  const SearchScreen({super.key, this.hour, this.pickMode = false, this.prefill});
 
   /// Hour of today to log into, from the timeline's `+`. Null logs at now.
   final int? hour;
+
+  /// When true the check button pops with the staged batch as [PickedFood]s
+  /// instead of writing it to the diary. Everything else on the screen — rows,
+  /// swipe-to-portion, the chip tray — behaves identically, which is the point:
+  /// the coach reuses this component rather than owning a second search.
+  final bool pickMode;
+
+  /// Seeds the query, so an unresolved detection opens search already looking
+  /// for the name the detector reported.
+  final String? prefill;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
-  final _controller = TextEditingController();
+  late final _controller = TextEditingController(text: widget.prefill ?? '');
+
+  @override
+  void initState() {
+    super.initState();
+    final q = widget.prefill;
+    if (q != null && q.isNotEmpty) {
+      // After the first frame so the provider is not written during build.
+      WidgetsBinding.instance.addPostFrameCallback(
+          (_) => ref.read(searchQueryProvider.notifier).set(q));
+    }
+  }
 
   @override
   void dispose() {
@@ -128,6 +150,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Future<void> _logBatch() async {
+    // Pick mode hands the staged batch back to the caller; nothing is written.
+    if (widget.pickMode) {
+      final picked = [
+        for (final b in ref.read(batchProvider))
+          PickedFood(
+            name: b.food.name,
+            grams: b.portion.grams,
+            foodId: b.food.foodId,
+            customFoodId: b.food.customFoodId,
+          )
+      ];
+      ref.read(batchProvider.notifier).clear();
+      if (mounted) Navigator.of(context).pop(picked);
+      return;
+    }
     await ref.read(batchProvider.notifier).logAll(hour: widget.hour);
     if (mounted) Navigator.of(context).pop();
   }

@@ -44,6 +44,10 @@ dependencies:
   freezed_annotation: ^3.1.0
   json_annotation: ^4.12.0
   supabase_flutter: ^2.16.0
+  http: ^1.6.0
+  # Signs the RS256 assertion that buys a Google identity token for Cloud Run.
+  dart_jsonwebtoken: ^3.4.1
+  camera: ^0.11.0+2
 
 dev_dependencies:
   flutter_test:
@@ -75,6 +79,10 @@ flutter:
   assets:
     - database/foods.sqlite
     - shorebird.yaml
+    # TEMPORARY, pre-public only: ships the Cloud Run service-account key inside
+    # the client bundle. Gitignored. Delete this line and the file the moment a
+    # server-side proxy exists — see lib/features/coach/data/engine_client.dart.
+    - secrets/app-caller-key.json
 
   fonts:
     - family: IBM Plex Mono

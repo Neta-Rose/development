@@ -1,0 +1,548 @@
+{
+ "request_id": "req_4cfdbcfa48d44de6daa3118a",
+ "rulebook_version": "sha256:b80998999570",
+ "context_snapshot_id": "ctx_a0e293ddfd56",
+ "degraded": false,
+ "timing_ms": {
+  "compose": 0,
+  "context": 0,
+  "explain": 0,
+  "filter": 0,
+  "rerank": 0,
+  "retrieve": 0,
+  "score": 0,
+  "total": 2
+ },
+ "suggestions": [
+  {
+   "rank": 1,
+   "type": "plate",
+   "total_score": 0.6866,
+   "items": [
+    {
+     "food_id": "fdc_171534",
+     "name": "Grilled chicken breast",
+     "amount": {
+      "value": 180,
+      "unit": "g"
+     },
+     "practical": "a medium plateful",
+     "nutrition_confidence": 0.91
+    },
+    {
+     "food_id": "fdc_2708403",
+     "name": "White rice",
+     "amount": {
+      "value": 320,
+      "unit": "g"
+     },
+     "practical": "about two cups",
+     "nutrition_confidence": 0.88
+    },
+    {
+     "food_id": "fdc_2709830",
+     "name": "Greek salad, no dressing",
+     "amount": {
+      "value": 200,
+      "unit": "g"
+     },
+     "practical": "a generous side",
+     "nutrition_confidence": 0.61
+    }
+   ],
+   "nutrients": {
+    "kcal": 781,
+    "protein_g": 69,
+    "carbs_g": 98.3,
+    "fat_g": 11.1,
+    "fiber_g": 4.3,
+    "sugar_g": 3,
+    "sat_fat_g": 3.8,
+    "sodium_mg": 1366
+   },
+   "macro_target_delta": {
+    "carbs_g": -2,
+    "fat_g": -19,
+    "protein_g": 4
+   },
+   "breakdown": [
+    {
+     "signal": "macro_fit",
+     "raw": 0.8052,
+     "weight": 1,
+     "weighted": 0.8052,
+     "explain": "Lands within 4 g of your per-meal protein target.",
+     "detail": {
+      "carbs_g": 0.9988,
+      "fat_g": 0.1986,
+      "kcal": 0.9307,
+      "protein_g": 0.9813
+     }
+    },
+    {
+     "signal": "rulebook:macro",
+     "raw": 0.8135,
+     "weight": 0.4067,
+     "weighted": 0.3308,
+     "explain": "Clears the minimum effective protein dose for a main meal.",
+     "rules": [
+      {
+       "id": "free_sugar_moderation",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.8,
+        "impact": 0.65
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789241549028"
+       ],
+       "explain": "Light on sugar."
+      },
+      {
+       "id": "minimum_effective_protein_dose",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.75,
+        "reliability": 0.85,
+        "impact": 0.75
+       },
+       "citations": [
+        "10.3945/ajcn.2008.26401"
+       ],
+       "explain": "Clears the minimum effective protein dose for a main meal."
+      },
+      {
+       "id": "protein_distribution_per_meal",
+       "raw": 0.2776,
+       "evidence": {
+        "confidence": 0.7,
+        "reliability": 0.75,
+        "impact": 0.8
+       },
+       "citations": [
+        "10.3945/jn.113.185280"
+       ],
+       "explain": "Protein is far from your per-meal distribution target."
+      },
+      {
+       "id": "saturated_fat_moderation",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.7,
+        "reliability": 0.85,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789240073630"
+       ],
+       "explain": "Low in saturated fat."
+      }
+     ]
+    },
+    {
+     "signal": "preference_affinity",
+     "raw": 0.5,
+     "weight": 0.6,
+     "weighted": 0.3,
+     "explain": "No signal from your food history yet \u2014 scored neutral."
+    },
+    {
+     "signal": "variety",
+     "raw": 0.75,
+     "weight": 0.4,
+     "weighted": 0.3,
+     "explain": "First vegetables you'd have logged \u2014 none in your history."
+    },
+    {
+     "signal": "rulebook:micro",
+     "raw": 0.5166,
+     "weight": 0.3664,
+     "weighted": 0.1893,
+     "explain": "Almost no fibre.",
+     "rules": [
+      {
+       "id": "fibre_per_meal",
+       "raw": 0.428,
+       "evidence": {
+        "confidence": 0.8,
+        "reliability": 0.9,
+        "impact": 0.8
+       },
+       "citations": [
+        "10.1016/S0140-6736(18)31809-9"
+       ],
+       "explain": "Almost no fibre."
+      },
+      {
+       "id": "oily_fish_weekly",
+       "raw": 0.4,
+       "evidence": {
+        "confidence": 0.65,
+        "reliability": 0.8,
+        "impact": 0.6
+       },
+       "citations": [
+        "10.1161/CIR.0000000000000574"
+       ],
+       "explain": "Another week slipping by without oily fish."
+      },
+      {
+       "id": "produce_rotation_gap",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.7,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/news-room/fact-sheets/detail/healthy-diet"
+       ],
+       "explain": "Brings back vegetables after a gap in your week."
+      },
+      {
+       "id": "sodium_moderation",
+       "raw": 0.3942,
+       "evidence": {
+        "confidence": 0.75,
+        "reliability": 0.85,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789241504836"
+       ],
+       "explain": "Very salty \u2014 most of a day's sodium in one sitting."
+      }
+     ]
+    },
+    {
+     "signal": "nutrition_confidence",
+     "raw": 0.61,
+     "weight": 0.3,
+     "weighted": 0.183,
+     "explain": "Nutrition estimated from a photo \u2014 treat amounts as approximate."
+    },
+    {
+     "signal": "rulebook:satiety",
+     "raw": 0.794,
+     "weight": 0.1716,
+     "weighted": 0.1363,
+     "explain": "Filling for its calories \u2014 protein and fibre do the work.",
+     "rules": [
+      {
+       "id": "satiety_protein_fibre_density",
+       "raw": 0.794,
+       "evidence": {
+        "confidence": 0.55,
+        "reliability": 0.6,
+        "impact": 0.65
+       },
+       "citations": [
+        "Satiety index of common foods (Holt et al. 1995, Eur J Clin Nutr; PMID 7498104)"
+       ],
+       "explain": "Filling for its calories \u2014 protein and fibre do the work."
+      }
+     ]
+    },
+    {
+     "signal": "rulebook:hydration",
+     "raw": 0.5,
+     "weight": 0.09,
+     "weighted": 0.045,
+     "explain": "High water content helps close today's fluid gap.",
+     "rules": [
+      {
+       "id": "hydrating_foods_when_behind",
+       "raw": 0.5,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.75,
+        "impact": 0.4
+       },
+       "citations": [
+        "10.2903/j.efsa.2010.1459"
+       ],
+       "explain": "High water content helps close today's fluid gap."
+      }
+     ]
+    }
+   ],
+   "constraints_applied": [
+    "nutrients.sodium_mg<=1500"
+   ],
+   "warnings": [
+    "Amounts for \"Greek salad, no dressing\" are estimated \u2014 nutrition is approximate."
+   ]
+  },
+  {
+   "rank": 2,
+   "type": "plate",
+   "total_score": 0.6727,
+   "items": [
+    {
+     "food_id": "fdc_171971",
+     "name": "Cooked shrimp",
+     "amount": {
+      "value": 60,
+      "unit": "g"
+     },
+     "practical": "a small palm-sized piece",
+     "nutrition_confidence": 0.86
+    },
+    {
+     "food_id": "fdc_171534",
+     "name": "Grilled chicken breast",
+     "amount": {
+      "value": 140,
+      "unit": "g"
+     },
+     "practical": "a small plateful",
+     "nutrition_confidence": 0.91
+    },
+    {
+     "food_id": "fdc_2708403",
+     "name": "White rice",
+     "amount": {
+      "value": 320,
+      "unit": "g"
+     },
+     "practical": "about two cups",
+     "nutrition_confidence": 0.88
+    },
+    {
+     "food_id": "fdc_2709830",
+     "name": "Greek salad, no dressing",
+     "amount": {
+      "value": 200,
+      "unit": "g"
+     },
+     "practical": "a generous side",
+     "nutrition_confidence": 0.61
+    }
+   ],
+   "nutrients": {
+    "kcal": 792,
+    "protein_g": 70.5,
+    "carbs_g": 99.2,
+    "fat_g": 10.9,
+    "fiber_g": 4.3,
+    "sugar_g": 3,
+    "sat_fat_g": 3.7,
+    "sodium_mg": 1914
+   },
+   "macro_target_delta": {
+    "carbs_g": -1,
+    "fat_g": -19,
+    "protein_g": 5
+   },
+   "breakdown": [
+    {
+     "signal": "macro_fit",
+     "raw": 0.8021,
+     "weight": 1,
+     "weighted": 0.8021,
+     "explain": "Lands within 5 g of your per-meal protein target.",
+     "detail": {
+      "carbs_g": 0.9997,
+      "fat_g": 0.1903,
+      "kcal": 0.9425,
+      "protein_g": 0.9657
+     }
+    },
+    {
+     "signal": "rulebook:macro",
+     "raw": 0.8029,
+     "weight": 0.4067,
+     "weighted": 0.3265,
+     "explain": "Clears the minimum effective protein dose for a main meal.",
+     "rules": [
+      {
+       "id": "free_sugar_moderation",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.8,
+        "impact": 0.65
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789241549028"
+       ],
+       "explain": "Light on sugar."
+      },
+      {
+       "id": "minimum_effective_protein_dose",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.75,
+        "reliability": 0.85,
+        "impact": 0.75
+       },
+       "citations": [
+        "10.3945/ajcn.2008.26401"
+       ],
+       "explain": "Clears the minimum effective protein dose for a main meal."
+      },
+      {
+       "id": "protein_distribution_per_meal",
+       "raw": 0.2366,
+       "evidence": {
+        "confidence": 0.7,
+        "reliability": 0.75,
+        "impact": 0.8
+       },
+       "citations": [
+        "10.3945/jn.113.185280"
+       ],
+       "explain": "Protein is far from your per-meal distribution target."
+      },
+      {
+       "id": "saturated_fat_moderation",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.7,
+        "reliability": 0.85,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789240073630"
+       ],
+       "explain": "Low in saturated fat."
+      }
+     ]
+    },
+    {
+     "signal": "preference_affinity",
+     "raw": 0.5,
+     "weight": 0.6,
+     "weighted": 0.3,
+     "explain": "No signal from your food history yet \u2014 scored neutral."
+    },
+    {
+     "signal": "variety",
+     "raw": 0.75,
+     "weight": 0.4,
+     "weighted": 0.3,
+     "explain": "First vegetables you'd have logged \u2014 none in your history."
+    },
+    {
+     "signal": "nutrition_confidence",
+     "raw": 0.61,
+     "weight": 0.3,
+     "weighted": 0.183,
+     "explain": "Nutrition estimated from a photo \u2014 treat amounts as approximate."
+    },
+    {
+     "signal": "rulebook:micro",
+     "raw": 0.4086,
+     "weight": 0.3664,
+     "weighted": 0.1497,
+     "explain": "Almost no fibre.",
+     "rules": [
+      {
+       "id": "fibre_per_meal",
+       "raw": 0.428,
+       "evidence": {
+        "confidence": 0.8,
+        "reliability": 0.9,
+        "impact": 0.8
+       },
+       "citations": [
+        "10.1016/S0140-6736(18)31809-9"
+       ],
+       "explain": "Almost no fibre."
+      },
+      {
+       "id": "oily_fish_weekly",
+       "raw": 0.4,
+       "evidence": {
+        "confidence": 0.65,
+        "reliability": 0.8,
+        "impact": 0.6
+       },
+       "citations": [
+        "10.1161/CIR.0000000000000574"
+       ],
+       "explain": "Another week slipping by without oily fish."
+      },
+      {
+       "id": "produce_rotation_gap",
+       "raw": 1,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.7,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/news-room/fact-sheets/detail/healthy-diet"
+       ],
+       "explain": "Brings back vegetables after a gap in your week."
+      },
+      {
+       "id": "sodium_moderation",
+       "raw": 0,
+       "evidence": {
+        "confidence": 0.75,
+        "reliability": 0.85,
+        "impact": 0.7
+       },
+       "citations": [
+        "https://www.who.int/publications/i/item/9789241504836"
+       ],
+       "explain": "Very salty \u2014 most of a day's sodium in one sitting."
+      }
+     ]
+    },
+    {
+     "signal": "rulebook:satiety",
+     "raw": 0.7977,
+     "weight": 0.1716,
+     "weighted": 0.1369,
+     "explain": "Filling for its calories \u2014 protein and fibre do the work.",
+     "rules": [
+      {
+       "id": "satiety_protein_fibre_density",
+       "raw": 0.7977,
+       "evidence": {
+        "confidence": 0.55,
+        "reliability": 0.6,
+        "impact": 0.65
+       },
+       "citations": [
+        "Satiety index of common foods (Holt et al. 1995, Eur J Clin Nutr; PMID 7498104)"
+       ],
+       "explain": "Filling for its calories \u2014 protein and fibre do the work."
+      }
+     ]
+    },
+    {
+     "signal": "rulebook:hydration",
+     "raw": 0.5,
+     "weight": 0.09,
+     "weighted": 0.045,
+     "explain": "High water content helps close today's fluid gap.",
+     "rules": [
+      {
+       "id": "hydrating_foods_when_behind",
+       "raw": 0.5,
+       "evidence": {
+        "confidence": 0.6,
+        "reliability": 0.75,
+        "impact": 0.4
+       },
+       "citations": [
+        "10.2903/j.efsa.2010.1459"
+       ],
+       "explain": "High water content helps close today's fluid gap."
+      }
+     ]
+    }
+   ],
+   "constraints_applied": [
+    "nutrients.sodium_mg<=1500"
+   ],
+   "warnings": [
+    "Amounts for \"Greek salad, no dressing\" are estimated \u2014 nutrition is approximate."
+   ]
+  }
+ ]
+}
