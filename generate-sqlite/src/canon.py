@@ -60,10 +60,10 @@ log = logging.getLogger("fdc_enrich.canon")
 
 # ---------------------------------------------------------------------------
 # The static instruction block. Byte-identical across every request in a run,
-# which is what makes a prompt-cache hit possible — and at ~1,100 tokens against
-# a ~900-token batch payload, it is about half the input of this pass.
+# which is what makes a prompt-cache hit possible — and at ~1,300 tokens against
+# a ~900-token batch payload, it is about 60% of the input of this pass.
 # ---------------------------------------------------------------------------
-STATIC_INSTRUCTIONS = """You read USDA FoodData Central descriptions and say what each food IS. The input is a JSON object with a "foods" array; return JSON matching the schema, one answer per input food, echoing each food's "i".
+_INSTRUCTIONS_TEMPLATE = """You read USDA FoodData Central descriptions and say what each food IS. The input is a JSON object with a "foods" array; return JSON matching the schema, one answer per input food, echoing each food's "i".
 
 Input keys per food: i = its index, echo it back; d = the USDA description; cat = the USDA food category; aka = USDA "Common Name" synonyms; also = USDA "Additional Description"; ing = the recipe's ingredients, when USDA records them.
 
@@ -76,16 +76,19 @@ KEEP anything that makes it a different thing on the shelf:
 * the form the food takes — ground beef, beef steak, beef broth; egg noodles, rice noodles
 * a part or cut — chicken thigh, chicken breast, pork loin, beef brisket
 * macro-bearing qualifiers a shopper picks between — "with skin" / "skinless", "lean only" / "lean and fat", "with meat" / "without meat", "whole milk" / "skim milk", "sweetened" / "unsweetened"
-* words that are part of the dish's NAME even though they look like cooking: fried rice, refried beans, smoked salmon, roast beef (the deli meat), baked beans
+* ANYTHING ADDED TO THE FOOD THAT CARRIES CALORIES. This is the rule, not a list: if it moves the numbers, it is a different food. Named fats ("with butter or margarine", "with oil", "cooked in butter"), sauce, gravy, cheese, sugar, syrup, honey, breading, batter. "carrots with butter" is not "carrots". When the description says fat was added but not which fat, write exactly "with fat added" ("carrots with fat added") — one wording, so two records of it are one food.
+* the product noun on confectionery and manufactured goods, so the product does not collide with an ingredient of the same name: "milk chocolate candy", not "milk chocolate"; "chocolate syrup", not "chocolate"
+* words that are part of the dish's NAME even though they look like cooking — see the cooking-method rule below
 
 DROP everything that describes handling rather than identity:
-* every cooking method and state: raw, cooked, roasted, baked, boiled, fried, grilled, steamed, braised, broiled, dried, canned, frozen, smoked, toasted, poached, scrambled, stewed, microwaved, sauteed, blanched, pickled, cured, breaded, drained, heated, unheated, fresh, refrigerated, prepared, "from raw", "from frozen"
+* every cooking method and state: {preps}, heated, unheated, fresh, refrigerated, prepared, "from raw", "from frozen". A cooking method is NEVER identity unless the dish is NAMED for it — "Potatoes, baked", "Potatoes, boiled" and "Potatoes, roasted" are all "potato", one food. The exceptions are dishes whose name IS the method: fried rice, baked beans, grilled cheese sandwich, smoked salmon, refried beans, roast beef (the deli meat).
 * doneness and texture: soft-boiled, hard-boiled, firm, tender
 * USDA grade and trim: choice, select, prime, all grades, "trimmed to 1/8\\" fat", "separable", "retail cuts"
 * NUMERIC fat levels: "80% lean / 20% fat", "2% milkfat", "3.25% milkfat". Say "ground beef" and "milk", never "80% lean ground beef". These are grades of one product and the pipeline groups them deliberately. A NAMED trim ("lean only", "with skin") is different — keep those.
-* salt, seasoning, added water, "with added vitamin D", "enriched"
+* salt, seasoning, added water, "with added vitamin D", "enriched" — these do not move the numbers
+* "no added fat", "no fat added" — that IS the plain food, and dropping it is what keeps one database's "Carrots, boiled, drained" and another's "Carrots, cooked, no added fat" in one food
 * brand names, restaurant names, "Restaurant,", "Fast Foods," — name the generic food
-* bureaucratic filler: NFS, "not further specified", "not specified", "year round average", "as packaged", "ready-to-heat", "all types", "commercially prepared", "home recipe"
+* bureaucratic filler: NFS, "not further specified", "not specified", "as ingredient", "year round average", "as packaged", "ready-to-heat", "all types", "commercially prepared", "home recipe"
 * size and packaging: large, medium, small, sliced, chopped, piece, cup, "Grade A"
 
 kind — "ingredient" or "dish".
@@ -94,13 +97,25 @@ kind — "ingredient" or "dish".
 * This is a hard separation, and it is why it is asked: a dish is NEVER a preparation of an ingredient it happens to be made of. Fried rice is not a preparation of rice, an omelet is not a preparation of egg, and french fries are not a preparation of potato. When "ing" lists several real foods, that is a dish. When the category says "mixed dishes", that is a dish.
 * Borderline single-ingredient processed foods (cheese, yogurt, butter, oil, flour, dried pasta) are "ingredient": a cook reaches for them as one thing.
 
-prep — how THIS record was prepared, one label from the enum, or null when the description does not say. Read it off the text; do not guess from the food type. Chicken is not "cooked" just because chicken is usually cooked, and a food whose description says nothing about preparation is null. Pick the label the description actually uses (roasted, braised, fried); the pipeline widens it to "cooked" itself when the numbers turn out not to separate them. When the preparation word is part of the name and you kept it in base ("fried rice"), prep is null — it is not a state this record is in, it is what the food is.
+prep — how THIS record was HANDLED, one label from the enum, or null when the description does not say. Never what was ADDED to it — that is identity and belongs in base. Read it off the text; do not guess from the food type. Chicken is not "cooked" just because chicken is usually cooked, and a food whose description says nothing about preparation is null. Count the methods the description names, then answer in this order. Names MORE THAN ONE ("Chicken breast, baked, broiled, or roasted") -> "cooked", never one of them: the record is all of them and picking one is a lie. Names EXACTLY ONE -> that one, however generic the rest of the line is ("Cress, garden, cooked, boiled, drained" is "boiled", not "cooked"). Names NONE, only that it was cooked -> "cooked". The pipeline widens a specific label to "cooked" itself when the numbers turn out not to separate them, so never widen it yourself. "raw" is a preparation like any other — never leave prep null on a description that says raw, though "from raw" says what a COOKED food was made from and is not itself a preparation. When the preparation word is part of the name and you kept it in base ("fried rice"), prep is null — it is not a state this record is in, it is what the food is.
 
 Examples:
 
 {"foods":[{"i":0,"d":"Rice, white, steamed, Chinese restaurant","cat":"Cereal Grains and Pasta"},{"i":1,"d":"Restaurant, Chinese, fried rice, without meat","cat":"Restaurant Foods"},{"i":2,"d":"Snacks, granola bars, hard, plain","cat":"Snacks"},{"i":3,"d":"Snacks, granola bars, hard, almond","cat":"Snacks"}]} -> {"foods":[{"i":0,"base":"white rice","kind":"ingredient","prep":"steamed"},{"i":1,"base":"fried rice","kind":"dish","prep":null},{"i":2,"base":"granola bar","kind":"dish","prep":null},{"i":3,"base":"almond granola bar","kind":"dish","prep":null}]}
 {"foods":[{"i":0,"d":"Chicken, broilers or fryers, dark meat, thigh, meat only, raw","cat":"Poultry Products"},{"i":1,"d":"Chicken, broilers or fryers, thigh, meat only, cooked, roasted","cat":"Poultry Products"},{"i":2,"d":"Chicken thigh, stewed, skin not eaten","cat":"Chicken, whole pieces"},{"i":3,"d":"Chicken thigh, rotisserie, skin eaten","cat":"Chicken, whole pieces"}]} -> {"foods":[{"i":0,"base":"chicken thigh","kind":"ingredient","prep":"raw"},{"i":1,"base":"chicken thigh","kind":"ingredient","prep":"roasted"},{"i":2,"base":"chicken thigh, skinless","kind":"ingredient","prep":"stewed"},{"i":3,"base":"chicken thigh, with skin","kind":"ingredient","prep":"roasted"}]}
-{"foods":[{"i":0,"d":"Beef, ground, 80% lean meat / 20% fat, patty, cooked, broiled","cat":"Beef Products"},{"i":1,"d":"Beef, ground, 95% lean meat / 5% fat, raw","cat":"Beef Products"},{"i":2,"d":"Egg omelet or scrambled egg, with cheese, fat added","cat":"Eggs and omelets","ing":"Eggs, Grade A, Large, egg whole | Cheese as ingredient in sandwiches | Oil or table fat, NFS"},{"i":3,"d":"Egg, whole, cooked, hard-boiled","cat":"Dairy and Egg Products"}]} -> {"foods":[{"i":0,"base":"ground beef patty","kind":"ingredient","prep":"broiled"},{"i":1,"base":"ground beef","kind":"ingredient","prep":"raw"},{"i":2,"base":"cheese omelet","kind":"dish","prep":null},{"i":3,"base":"egg","kind":"ingredient","prep":"boiled"}]}"""
+{"foods":[{"i":0,"d":"Beef, ground, 80% lean meat / 20% fat, patty, cooked, broiled","cat":"Beef Products"},{"i":1,"d":"Beef, ground, 95% lean meat / 5% fat, raw","cat":"Beef Products"},{"i":2,"d":"Egg omelet or scrambled egg, with cheese, fat added","cat":"Eggs and omelets","ing":"Eggs, Grade A, Large, egg whole | Cheese as ingredient in sandwiches | Oil or table fat, NFS"},{"i":3,"d":"Egg, whole, cooked, hard-boiled","cat":"Dairy and Egg Products"}]} -> {"foods":[{"i":0,"base":"ground beef patty","kind":"ingredient","prep":"broiled"},{"i":1,"base":"ground beef","kind":"ingredient","prep":"raw"},{"i":2,"base":"cheese omelet with fat added","kind":"dish","prep":null},{"i":3,"base":"egg","kind":"ingredient","prep":"boiled"}]}"""
+
+# The enum is interpolated rather than spelled out: the prompt and
+# ``config.PREP_TYPES`` drifted apart once already (the prose still asked for
+# "breaded" after it was removed, and never mentioned "brewed"), and a prompt
+# that names a label the schema rejects costs a whole batch. Placeholder
+# substitution, not an f-string — the block is full of literal JSON braces —
+# and asserted, because a reworded bullet would otherwise ship a prompt that
+# names no labels at all, silently.
+assert "{preps}" in _INSTRUCTIONS_TEMPLATE
+STATIC_INSTRUCTIONS = _INSTRUCTIONS_TEMPLATE.replace(
+    "{preps}", ", ".join(config.PREP_TYPES)
+)
 
 
 class Canonicalizer(enrich._LLMPass):
