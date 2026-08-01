@@ -55,3 +55,16 @@ resource "google_project_iam_member" "deploy_storage" {
   member  = "serviceAccount:${google_service_account.deploy.email}"
 }
 
+resource "google_project_iam_member" "deploy_sa_admin" {
+  project = var.gcp_project_id
+  role    = "roles/iam.serviceAccountAdmin"
+  member  = "serviceAccount:${google_service_account.deploy.email}"
+}
+
+resource "google_project_iam_member" "deploy_project_iam_admin" {
+  project = var.gcp_project_id
+  role    = "roles/resourcemanager.projectIamAdmin"
+  member  = "serviceAccount:${google_service_account.deploy.email}"
+}
+
+
