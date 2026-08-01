@@ -857,6 +857,55 @@ def test_preparations_split_on_water_and_take_the_widest_label():
     assert cooked["protein_g"][0] > 20.0
 
 
+def test_a_vague_cooked_is_absorbed_by_its_one_named_sibling():
+    """asparagus offered "cooked" beside "boiled", which is not a choice.
+
+    No member of the "cooked" preparation states a method — only the macros
+    kept it apart from the boiled rows — so its label carries nothing the
+    sibling's does not, and the specific name wins. The merged preparation
+    holds every member and its macros are the average of all of them.
+    """
+    items, preps, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Asparagus, cooked", "asparagus", "ingredient", "cooked", 2.4, 4.1, 0.2),
+        (2, "Asparagus, cooked, from frozen", "asparagus", "ingredient", "cooked",
+         3.0, 4.4, 0.4),
+        (3, "Asparagus, cooked, boiled, drained", "asparagus", "ingredient", "boiled",
+         4.2, 7.0, 0.5),
+    ]))
+    assert items["n_preps"][0] == 1, "'cooked' and 'boiled' were two rows of the wheel"
+    assert preps["prep_type"].to_list() == ["boiled"], "the specific name wins"
+    assert preps["n_foods"][0] == 3, "the member count reflects the merge"
+    assert preps["protein_g"][0] == pytest.approx((2.4 + 3.0 + 4.2) / 3)
+    assert preps["fat_g"][0] == pytest.approx((0.2 + 0.4 + 0.5) / 3)
+
+
+def test_a_cooked_that_was_earned_keeps_its_place_beside_a_named_preparation():
+    """The two declines, which are what make the absorption above safe.
+
+    back chicken's "cooked" was *widened* from roasted + stewed, so there it
+    means "cooked some other way" and absorbing it into "fried" would file
+    roasted chicken under a label that is false of it. And where the vague one
+    has several named siblings there is no single specific name to take.
+    """
+    _, widened, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Chicken, back, roasted", "back chicken", "ingredient", "roasted",
+         27.0, 0.0, 15.0),
+        (2, "Chicken, back, stewed", "back chicken", "ingredient", "stewed",
+         25.0, 0.0, 16.0),
+        (3, "Chicken, back, fried, batter", "back chicken", "ingredient", "fried",
+         30.0, 12.0, 20.0),
+    ]))
+    assert dict(zip(widened["prep_type"], widened["n_foods"])) == {"cooked": 2, "fried": 1}
+
+    _, several, _ = cluster.build_clusters(_cluster_frame([
+        (1, "Potatoes, cooked", "potato", "ingredient", "cooked", 2.0, 20.0, 0.1),
+        (2, "Potatoes, boiled, drained", "potato", "ingredient", "boiled", 2.0, 12.0, 0.1),
+        (3, "Potatoes, fried", "potato", "ingredient", "fried", 3.5, 35.0, 15.0),
+    ]))
+    assert dict(zip(several["prep_type"], several["n_foods"])) == {
+        "cooked": 1, "boiled": 1, "fried": 1}
+
+
 def test_one_label_stays_one_preparation_however_the_macros_disagree():
     """The cross-database fix, and the reason labels are bucketed before
     macros are looked at.

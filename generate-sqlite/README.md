@@ -240,6 +240,16 @@ not say how a food was prepared leaves the macros as the only evidence.
 Complete-linkage on that merge, so a merged bucket stays macro-coherent rather
 than chaining.
 
+**A vague "cooked" is then absorbed by its one named sibling**, macros or no
+macros: asparagus offered "cooked" beside "boiled" where no member of the
+"cooked" preparation stated a method, and that is not a choice a user can make.
+It fires only where the evidence is unambiguous — 59 items on the shipped
+corpus. Where "cooked" was *widened* from two or more members that each named a
+method it means "cooked some other way" and stands (back chicken from roasted +
+stewed, beside fried), and where the vague one has several named siblings there
+is no single name to take: 40 items keep "cooked" beside a specific method,
+down from 99.
+
 ### The fat-level exception
 
 Foods sold at a stated numeric fat level (`80% lean`, `2% milkfat`) are one

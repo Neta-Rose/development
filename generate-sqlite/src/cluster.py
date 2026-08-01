@@ -258,6 +258,69 @@ def _widest_label(labels: set[str | None]) -> str | None:
     return named.pop() if len(named) == 1 else _parent(min(named))
 
 
+def _absorb_vague_cooked(
+    preps: list[tuple[str | None, list[dict]]],
+) -> list[tuple[str | None, list[dict]]]:
+    """Fold a vague "cooked" preparation into its one named sibling.
+
+    An item must never ask a user to choose between "cooked" and "boiled",
+    which mean the same thing. Asparagus offers exactly that: a "cooked"
+    preparation no member of which states a method, beside a "boiled" one. The
+    specific name wins, because the item does specify — which is the whole
+    reason "cooked" is reserved as the fallback in the first place.
+
+    The two cases are told apart rather than merged unconditionally, and that
+    distinction is the point of this function, not an exception to it. A
+    "cooked" label is reached two ways. Either no member said how (asparagus,
+    bamboo shoot), and then it carries no information its named sibling does not
+    — 59 items. Or :func:`_widest_label` *widened* it from two or more members
+    that each named a method — back chicken from roasted + stewed, beside
+    fried; lamb shoulder from broiled + roasted, beside braised — and there it
+    honestly means "cooked some other way", so absorbing it into "fried" would
+    file roasted chicken under a label that is false of it. Which case an item
+    is in is readable off its members' own labels, so the same shape as the
+    guard in :func:`prep_label` applies: act where the evidence is unambiguous,
+    decline where it is not.
+
+    Several named siblings decline for the same reason: with "cooked" beside
+    both "fried" and "boiled" there is no one specific name to take, and
+    picking either would be a coin toss the user pays for. Both sides are
+    counted and both must be exactly one. Only the named side can be several
+    today — bucketing is by exact label, so at most one preparation can be
+    vaguely "cooked" — but a take-the-first on the other side would answer a
+    question it had not checked, and this function's whole rule is that an
+    ambiguous count declines.
+
+    Measured over the shipped 13,694-food corpus with the :func:`prep_label`
+    guard applied (the stored column is backfilled by #22, not here): 99 items
+    offered "cooked" beside a specific method, 59 are absorbed and 40 keep it.
+    The spec projected 94 / 53 / 41 from a simulation that also assumed the
+    re-canonicalization prompt had landed, which it has not. The corpus itself
+    is the one the spec measured — without the guard it reproduces that
+    baseline of 83 exactly — so the gap is in what the guard alone does to it,
+    and every extra item it sharpens into a named sibling is one more this
+    absorbs. Nothing is tuned to the projection: the rule is the rule and these
+    are the numbers it produces.
+
+    Deliberately ignores the macro distance that separated the two buckets. The
+    labels are the evidence here — the numbers only ever decided *which* rows
+    share a preparation, never what a preparation is called.
+    """
+    vague = [
+        i for i, (label, rows) in enumerate(preps)
+        if label == "cooked"
+        and not any(config.PREP_PARENT.get(r["prep_label"]) == "cooked" for r in rows)
+    ]
+    named = [i for i, (label, _) in enumerate(preps) if config.PREP_PARENT.get(label) == "cooked"]
+    if len(vague) != 1 or len(named) != 1:
+        return preps
+    child = named[0]
+    rows = sorted(preps[child][1] + preps[vague[0]][1],
+                  key=lambda r: (-sum(r["macros"]), r["fdc_id"]))
+    return [(label, rows if i == child else members)
+            for i, (label, members) in enumerate(preps) if i != vague[0]]
+
+
 def split_preps(group: list[dict]) -> list[tuple[str | None, list[dict]]]:
     """Split one item into (label, members) preparations. Labels first, macros second.
 
@@ -273,6 +336,10 @@ def split_preps(group: list[dict]) -> list[tuple[str | None, list[dict]]]:
     :func:`_compatible` — macros may join "grilled" to "baked" but never "raw"
     to "poached". Complete-linkage on the merge, so a merged bucket stays
     macro-coherent rather than chaining.
+
+    Then :func:`_absorb_vague_cooked` runs, which is the one merge the macros do
+    not get a vote on: a "cooked" preparation nobody stated a method for, beside
+    exactly one named sibling, is that sibling under a vaguer name.
 
     Ordered by descending total macros, so the most concentrated preparation is
     seq 0 — dried before cooked before raw, which is stable and happens to read
@@ -311,6 +378,7 @@ def split_preps(group: list[dict]) -> list[tuple[str | None, list[dict]]]:
         )
         for prep in merged
     ]
+    preps = _absorb_vague_cooked(preps)
     preps.sort(key=lambda p: (-sum(_mean(p[1], i) for i in range(3)), p[1][0]["fdc_id"]))
     return preps
 
