@@ -806,6 +806,73 @@ def test_a_disagreeing_kind_is_reported_not_silently_voted_on(con):
     assert out["items"] == 3, "the disagreement really does cost an extra item"
 
 
+def test_an_identity_written_two_ways_is_reported_as_a_set(con):
+    """The diagnostic that gates any future resolution of a disagreement.
+
+    base_key sorts its tokens, so "ground beef" and "beef ground" are one
+    identity — which is 32 correct merges and the reason "milk chocolate" can
+    land on "chocolate milk". A count cannot tell a caller *which* identity it
+    is holding, so this is a set: the identities in it are the ones where a
+    merge is a guess rather than a fact.
+    """
+    assert cluster.run(con)["spelling_splits"] == set()
+    canonicalize(con, {3: ("beef ground", "ingredient", "cooked")})
+    out = cluster.run(con)
+    assert out["spelling_splits"] == {"beef ground"}
+    assert out["items"] == 2, "still one item — the sort merged them, and that is the risk"
+    assert out["unstated_preps"] == 0, "every food here stated its own preparation"
+
+
+def test_a_leaked_cooking_word_is_counted_where_it_costs_a_duplicate(con):
+    """Stage 3b-1 is told a method is never identity unless the dish is named
+    for it. A leak that splits a food off an identity that really exists is
+    reported; one that lands nowhere is not, because nothing was split."""
+    assert cluster.run(con)["leaked_cooking_words"] == []
+    canonicalize(con, {3: ("cooked ground beef", "ingredient", "cooked")})
+    assert cluster.run(con)["leaked_cooking_words"] == ["beef cooked ground"]
+    # ... and a leak with nothing to merge back onto is left alone: no other
+    # food in this corpus is an avocado, so "grilled" cost nothing here.
+    canonicalize(con, {2: ("grilled avocado", "ingredient", "grilled")})
+    assert cluster.run(con)["leaked_cooking_words"] == ["beef cooked ground"]
+    # ... nor does an identity of the other kind count as something to merge
+    # with: a dish is never a preparation of an ingredient, so stripping the
+    # word would not have joined them anyway.
+    canonicalize(con, {1: ("ground beef", "dish", "raw")})
+    assert cluster.run(con)["leaked_cooking_words"] == []
+
+
+def test_a_preparation_holding_a_food_that_stated_none_is_counted():
+    """The label is inference from macros alone, so the food is displayed under
+    a name its own description never claimed — raw carrots under "boiled"."""
+    df = _cluster_frame([
+        (1, "Carrots, cooked, boiled, drained", "carrot", "ingredient", "boiled",
+         0.8, 8.2, 0.2),
+        (2, "Carrots", "carrot", "ingredient", None, 0.8, 8.2, 0.2),
+    ])
+    _, preps, links = cluster.build_clusters(df)
+    assert dict(zip(preps["prep_type"], preps["n_foods"])) == {"boiled": 2}
+    assert cluster.unstated_preps(df, preps, links) == 1
+
+    # a preparation every member stated is not counted ...
+    stated = _cluster_frame([
+        (1, "Carrots, cooked, boiled, drained", "carrot", "ingredient", "boiled",
+         0.8, 8.2, 0.2),
+        (2, "Carrots, boiled", "carrot", "ingredient", "boiled", 0.8, 8.2, 0.2),
+    ])
+    _, preps, links = cluster.build_clusters(stated)
+    assert cluster.unstated_preps(stated, preps, links) == 0
+
+    # ... nor is a preparation that carries no label at all: there is no claim
+    # to be false, and the count is about labels that are.
+    unlabeled = _cluster_frame([
+        (1, "Carrots", "carrot", "ingredient", None, 0.8, 8.2, 0.2),
+        (2, "Carrots, whole", "carrot", "ingredient", None, 0.8, 8.2, 0.2),
+    ])
+    _, preps, links = cluster.build_clusters(unlabeled)
+    assert preps["prep_type"].to_list() == [None]
+    assert cluster.unstated_preps(unlabeled, preps, links) == 0
+
+
 def test_a_distinguishing_ingredient_makes_a_different_item():
     """fdc_ids 167542/167543 were one item: 'plain' and 'hard' were stopwords
     and 'almond' was one token out of four, so they scored 0.75 and merged."""

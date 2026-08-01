@@ -88,6 +88,17 @@ def _singular(word: str) -> str:
     return _INFLECT.singular_noun(word) or word
 
 
+def _key_words(base_name: str) -> list[str]:
+    """The identity words :func:`base_key` keys on, in the order they were written.
+
+    Split out because :func:`spelling_splits` needs everything base_key does
+    *except* the sort — the sort is the very thing it is measuring the cost of.
+    """
+    text = _FAT_LEVEL_RE.sub(" ", base_name.lower())
+    return [w for w in (_singular(w) for w in _WORD_RE.findall(text))
+            if w not in config.BASE_KEY_STOPWORDS]
+
+
 def base_key(base_name: str | None) -> str:
     """Normalize a base_name into the string items are grouped by.
 
@@ -108,12 +119,7 @@ def base_key(base_name: str | None) -> str:
     """
     if not base_name:
         return ""
-    text = _FAT_LEVEL_RE.sub(" ", base_name.lower())
-    words = sorted({
-        w for w in (_singular(w) for w in _WORD_RE.findall(text))
-        if w not in config.BASE_KEY_STOPWORDS
-    })
-    return " ".join(words)
+    return " ".join(sorted(set(_key_words(base_name))))
 
 
 _RAW_WORDS = frozenset({"raw", "unprepared", "uncooked"})
@@ -425,6 +431,9 @@ def _row(record: dict) -> dict:
         "brand_flagged": bool(record["brand_flagged"]),
         "n_nutrients": int(record["n_nutrients"] or 0),
         "base_key": key or f"\x00{record['fdc_id']}",
+        # The identity as it was written, which base_key deliberately flattens.
+        # Kept so the diagnostics can measure what that flattening covered up.
+        "base_name": record.get("base_name"),
         "food_kind": record.get("food_kind") or "",
         "prep_label": record.get("prep_label"),
         "macros": macros,
@@ -470,6 +479,120 @@ def kind_splits(rows: list[dict]) -> list[str]:
     for row in rows:
         kinds.setdefault(row["base_key"], set()).add(row["food_kind"])
     return sorted(k for k, v in kinds.items() if len(v) > 1)
+
+
+def spelling_splits(rows: list[dict]) -> set[str]:
+    """base_keys whose members were written more than one way.
+
+    A **set**, not a count, and that is the point of it: the identities in here
+    are the ones :func:`base_key`'s token sort merged, so they are the ones most
+    likely to hold two genuinely different foods — "chocolate milk" the drink
+    and "milk chocolate" the confectionery are one key. Anything that wants to
+    *resolve* a disagreement inside an identity has to be able to ask whether
+    this is one of them and decline; a number cannot answer that.
+
+    Measured as ``base_key`` minus the sort — same lowercasing, fat-level strip,
+    singularization and stopwords, order kept — because the sort is the whole
+    mechanism being measured. Two members whose words differ outright ("beef
+    stew" vs "beef stew, canned") cannot share a key in the first place, so
+    every entry here really is one identity written two ways.
+
+    Keyed on ``base_key`` alone, unlike :func:`leaked_cooking_words` and unlike
+    the grouping itself, and that is required rather than an oversight: what
+    consumes this is a caller asking whether an identity whose records disagree
+    about ``food_kind`` is safe to merge, so the two kinds' spellings have to be
+    compared with each other. Per (key, kind) the confectionery record sits
+    alone with one spelling and the collision it is the whole example of would
+    not be flagged.
+
+    35 identities on the 13,694-food corpus. Run against the corpus as it stood
+    before ``inflect`` landed (#16) this rule returns exactly the 34 the spec
+    measured; the extra one is a plural pair the hand-rolled trailing-s rule
+    kept apart and inflect now folds into one identity, which is that change
+    working rather than a regression here.
+    """
+    spellings: dict[str, set[tuple[str, ...]]] = {}
+    for row in rows:
+        if row["base_name"]:
+            spellings.setdefault(row["base_key"], set()).add(
+                tuple(dict.fromkeys(_key_words(row["base_name"])))
+            )
+    return {key for key, written in spellings.items() if len(written) > 1}
+
+
+# Every word the preparation enum knows, which is this corpus's own vocabulary
+# for how a food was handled. Deliberately not a hand-maintained list of
+# "cooking words": the 60-word stopword list this pipeline already deleted is
+# what that becomes, and the cost of the enum instead is that a leak the enum
+# has no word for ("heated", "refrigerated") is invisible here.
+_PREP_WORDS = frozenset(config.PREP_TYPES)
+
+
+def leaked_cooking_words(rows: list[dict]) -> list[str]:
+    """base_keys carrying a preparation word that cost them a duplicate item.
+
+    Stage 3b-1 is told a cooking method is never identity unless the dish is
+    named for it ("fried rice", "baked beans"), and 719 records still leak one.
+    Only some of those leaks *cost* anything, and this counts those: an identity
+    is listed when dropping the leaked word lands on another identity that
+    really exists, at the same ``food_kind`` — which is exactly the item the
+    leak split it away from. "grilled cheese sandwich" beside "cheese sandwich"
+    is in here and is a *correct* split, one of the ten or so the spec measured
+    a blind strip getting wrong; that is why this is reported and never
+    auto-stripped, a wrong merge being worse than a missed one.
+
+    161 identities on the 13,694-food corpus, against the spec's 173. That
+    figure came from an ad-hoc strip during the grilling session and its word
+    list did not survive into the repo, so this is not the same rule counted
+    twice. Three differences, all deliberate: it counts identities where the
+    spec counted *pairs*, so an identity leaking two words is one entry here;
+    it keys off the preparation enum, which #15 has since taken "breaded" out
+    of and put "brewed" into; and it requires the identity it would merge with
+    to share a ``food_kind``, since two kinds are two items whatever the words
+    say. Run over the corpus as it stood before #15 and #16 it returns 170.
+    Reading it: it falls when the prompt stops leaking, and the residue is the
+    genuinely method-named dishes.
+
+    The stripped identity goes back through :func:`base_key` rather than being
+    re-joined by hand, so the one normalization stays the only thing that knows
+    what a key looks like.
+    """
+    identities = {(row["base_key"], row["food_kind"]) for row in rows}
+    return sorted({
+        key
+        for key, kind in identities
+        for word in _PREP_WORDS & set(key.split())
+        if (base_key(" ".join(set(key.split()) - {word})), kind) in identities
+    })
+
+
+def unstated_preps(df: pl.DataFrame, preps: pl.DataFrame, links: pl.DataFrame) -> int:
+    """Preparations holding a food whose description never stated a preparation.
+
+    A bucket seeded by a label may take in rows that carry none — that is
+    :func:`_compatible` treating a null label as an absence of evidence and
+    letting the macros decide — and the food is then displayed under a name its
+    own description never claimed. Raw carrots sitting under "boiled" is this
+    count, and every one of them is a preparation whose label is inference from
+    macros alone.
+
+    194 preparations of 7,855 on the 13,694-food corpus, against the spec's 189.
+    Over the corpus as it stood before ``inflect`` (#16) moved item membership
+    and before the absorption rule (#18) merged buckets it is 192; the residual
+    three are the spec's own margin, measured by hand in the session.
+
+    Counts a member that *stated nothing*, not one whose stated label differs
+    from the bucket's. The difference is #18: absorption deliberately files a
+    vaguely "cooked" record under its one specific sibling, which is a record
+    under a label it did not state and is the fix rather than the defect —
+    counting it would make this rise by 45 because a correction landed.
+    """
+    member_labels = links.join(df.select("fdc_id", "prep_label"), on="fdc_id").join(
+        preps.select("prep_id", "prep_type"), on="prep_id"
+    )
+    return member_labels.filter(
+        pl.col("prep_type").is_not_null() & pl.col("prep_label").is_null()
+    )["prep_id"].n_unique()
 
 
 def build_clusters(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
@@ -573,6 +696,11 @@ def run(con) -> dict:
         "preps": len(preps),
         "uncanonicalized": int(df["base_name"].is_null().sum()),
         "kind_splits": kind_splits(rows),
+        # Corpus quality, so drift is a number that moves rather than something
+        # found months later. A set, not a size — see :func:`spelling_splits`.
+        "spelling_splits": spelling_splits(rows),
+        "leaked_cooking_words": leaked_cooking_words(rows),
+        "unstated_preps": unstated_preps(df, preps, links),
         "dishes": int((df["food_kind"] == "dish").sum()),
         "multi_food_items": int((items["n_foods"] > 1).sum()),
         "multi_prep_items": int((items["n_preps"] > 1).sum()),
