@@ -10,10 +10,10 @@ Originally, the server communicated exclusively with OpenRouter via a direct HTT
 
 1. **Use `langchaingo` (`github.com/tmc/langchaingo`)** as the unified LLM provider interface (`llms.Model`).
 2. **Provider Selection via `provider:model_id` Prefix**:
-   - Model strings use the format `provider:model_id` (e.g., `openrouter:google/gemini-2.5-flash`, `vertex:gemini-2.5-flash`, `bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0`, `openai:gpt-4o`).
-   - Unprefixed model strings default to `openrouter:` for full backward compatibility.
+   - Model strings use the format `provider:model_id` (e.g., `openai:gpt-4o`, `vertex:gemini-2.5-flash`, `bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0`).
+   - Unprefixed model strings default to `openai:` (using `AI_ENDPOINT` and `AI_API_KEY`).
 3. **Lazy Provider Factory & Credential Lifecycle**:
-   - Provider credentials (`OPENROUTER_API_KEY`, `GCP_PROJECT_ID` & `GCP_LOCATION`, `AWS_REGION`, `OPENAI_API_KEY`) are inspected at server startup.
+   - Provider credentials (`AI_API_KEY`, `GCP_PROJECT_ID` & `GCP_LOCATION`, `AWS_REGION`) are inspected at server startup.
    - Provider instances are lazily instantiated and cached per provider/model.
    - Targeting an unconfigured provider gracefully returns `codeNotConfigured`.
 4. **Structured JSON Output & Error Mapping**:

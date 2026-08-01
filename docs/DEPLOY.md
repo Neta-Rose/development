@@ -38,7 +38,7 @@ deterministically, so a fresh `apply` after `terraform import` picks the same na
 | `GCP_TF_STATE_BUCKET` | server-deploy | GCS bucket name for the app stack backend |
 | `PLATE_API_TOKEN` | **both** | Cloud Run env var *and* the app's dart-define. One value, both places. |
 | `PLATE_API_URL` | flutter-release | the Cloud Run URL, available after the first deploy |
-| `OPENROUTER_API_KEY` | server-deploy | optional; only needed if targeting openrouter provider models |
+| `AI_API_KEY` | server-deploy | optional; needed if targeting API key authenticated models |
 
 | `SHOREBIRD_TOKEN` | flutter-release | Shorebird console → Account → API Keys |
 | `ANDROID_KEYSTORE_BASE64` | flutter-release | see below |
@@ -53,11 +53,9 @@ deterministically, so a fresh `apply` after `terraform import` picks the same na
 openssl rand -hex 32
 ```
 
-### Why the secrets are Lambda environment variables
+### Environment variables in server configuration
 
-Unlike ECS, Lambda cannot resolve a Secrets Manager or SSM ARN into an environment variable; doing
-that would need either a runtime extension or an AWS SDK dependency inside `server/`, whose `go.mod`
-is deliberately stdlib-only. So `OPENROUTER_API_KEY` and `PLATE_API_TOKEN` pass through Terraform as
+`AI_API_KEY` and `PLATE_API_TOKEN` pass through Terraform as
 `sensitive` variables and **land in remote state**. That is the reason the state bucket is private,
 versioned, encrypted, and TLS-only. GitHub secrets remain the single source of truth; nothing is
 typed into the console.
@@ -67,9 +65,9 @@ typed into the console.
 `PLATE_API_URL` does not exist until the server is deployed, and the server is happy without its
 key. So:
 
-1. Set the four `AWS_*` secrets and `PLATE_API_TOKEN`. Skip `OPENROUTER_API_KEY` for now.
+1. Set the credentials secrets and `PLATE_API_TOKEN`. Skip `AI_API_KEY` for now if targeting Vertex/Bedrock.
 2. Run **Deploy server** manually. It will fail the smoke test at the `configured: true`
-   assertion — that is correct, the key is genuinely missing — but the endpoint is up by then.
+   assertion — that is correct, credentials are missing — but the endpoint is up by then.
 3. Read the URL and set it as `PLATE_API_URL`. Easiest from the run's job summary, which prints
    it; locally the app stack's backend is a partial config, so init needs the bucket:
    ```bash
@@ -77,7 +75,7 @@ key. So:
    terraform init -backend-config="bucket=$BUCKET" -backend-config="region=$REGION"
    terraform output -raw function_url
    ```
-4. Set `OPENROUTER_API_KEY`, re-run **Deploy server**. Smoke test now passes.
+4. Set `AI_API_KEY`, re-run **Deploy server**. Smoke test now passes.
 5. Run **Flutter release**.
 
 ## Android keystore

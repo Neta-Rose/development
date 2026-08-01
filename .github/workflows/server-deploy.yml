@@ -85,7 +85,7 @@ jobs:
           TF_VAR_gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}
           TF_VAR_gcp_region: ${{ env.GCP_REGION }}
           TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          TF_VAR_ai_api_key: ${{ secrets.AI_API_KEY }}
           TF_VAR_plate_api_token: ${{ secrets.PLATE_API_TOKEN }}
         run: |
           terraform plan -input=false -out=tfplan

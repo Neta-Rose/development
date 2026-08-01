@@ -7,9 +7,8 @@ import (
 
 func TestLoadConfigDefaults(t *testing.T) {
 	// t.Setenv restores the environment after the test, and forbids t.Parallel.
-	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("AI_API_KEY", "")
 	t.Setenv("AI_MODEL", "")
-	t.Setenv("OPENROUTER_MODEL", "")
 	t.Setenv("ADDR", "")
 	t.Setenv("PORT", "")
 
@@ -38,10 +37,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestLoadConfigReadsTheModelAndPort(t *testing.T) {
 	t.Setenv("AI_MODEL", "vertex:gemini-2.5-flash")
-	t.Setenv("OPENROUTER_MODEL", "")
 	t.Setenv("ADDR", "")
 	t.Setenv("PORT", "9999")
-	t.Setenv("OPENROUTER_TIMEOUT", "18")
+	t.Setenv("AI_TIMEOUT", "18")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -61,14 +59,13 @@ func TestLoadConfigReadsTheModelAndPort(t *testing.T) {
 
 func TestLoadConfigRejectsAMalformedModel(t *testing.T) {
 	t.Setenv("AI_MODEL", "not a model id")
-	t.Setenv("OPENROUTER_MODEL", "")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("want an error for a malformed model id")
 	}
 }
 
 func TestLoadConfigRejectsAPlainHTTPEndpoint(t *testing.T) {
-	t.Setenv("OPENROUTER_ENDPOINT", "http://openrouter.example.com/api")
+	t.Setenv("AI_ENDPOINT", "http://ai.example.com/api")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("want an error: the key must not travel in clear text")
 	}
@@ -100,10 +97,9 @@ func TestResolveModel(t *testing.T) {
 
 func TestParseModelAndProviderConfigured(t *testing.T) {
 	cfg := Config{
-		APIKey:       "sk-openrouter-key",
+		APIKey:       "sk-ai-key",
 		GCPProjectID: "my-gcp-project",
 		AWSRegion:    "us-east-1",
-		OpenAIAPIKey: "sk-openai-key",
 	}
 
 	tests := []struct {
@@ -115,7 +111,7 @@ func TestParseModelAndProviderConfigured(t *testing.T) {
 		{"vertex:gemini-2.5-flash", "vertex", "gemini-2.5-flash"},
 		{"bedrock:us.anthropic.claude-3-5-sonnet:0", "bedrock", "us.anthropic.claude-3-5-sonnet:0"},
 		{"openai:gpt-4o", "openai", "gpt-4o"},
-		{"google/gemini-2.5-flash", "openrouter", "google/gemini-2.5-flash"},
+		{"google/gemini-2.5-flash", "openai", "google/gemini-2.5-flash"},
 	}
 
 	for _, tc := range tests {

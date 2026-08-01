@@ -26,7 +26,7 @@ FROM public.ecr.aws/docker/library/alpine:3.21
 COPY --from=lwa /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=build /plated /plated
 
-# /healthz answers 200 unconditionally, including before OPENROUTER_API_KEY exists —
+# /healthz answers 200 unconditionally, including before AI_API_KEY exists —
 # so the adapter reports ready even on a deploy whose secret is not wired up yet.
 ENV PORT=8080 \
     AWS_LWA_READINESS_CHECK_PATH=/healthz

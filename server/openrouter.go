@@ -17,20 +17,20 @@ import (
 // exactly one case of the app's sealed VisionFailure, so the camera pane's copy
 // is decided by an exhaustive switch rather than by string matching.
 var (
-	errNotConfigured = errors.New("openrouter: no api key configured")
-	errNoConnection  = errors.New("openrouter: unreachable")
-	errTimeout       = errors.New("openrouter: timed out")
-	errUnreadable    = errors.New("openrouter: reply did not satisfy the response schema")
+	errNotConfigured = errors.New("ai: no api key configured")
+	errNoConnection  = errors.New("ai: unreachable")
+	errTimeout       = errors.New("ai: timed out")
+	errUnreadable    = errors.New("ai: reply did not satisfy the response schema")
 )
 
-// upstreamError is a non-2xx from OpenRouter. It carries the status code and
-// nothing else — no body, no headers. That is not tidiness: an OpenRouter error
+// upstreamError is a non-2xx from the AI provider. It carries the status code and
+// nothing else — no body, no headers. That is not tidiness: an error
 // body can echo back parts of the request, and a failure value that structurally
 // cannot hold one structurally cannot leak the key through a log line.
 type upstreamError struct{ Status int }
 
 func (e *upstreamError) Error() string {
-	return fmt.Sprintf("openrouter: upstream status %d", e.Status)
+	return fmt.Sprintf("ai: upstream status %d", e.Status)
 }
 
 // maxUpstreamBody caps what is read from OpenRouter. A completion of a few

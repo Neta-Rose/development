@@ -26,8 +26,8 @@ variable "ai_model" {
   default     = "vertex:gemini-2.5-flash"
 }
 
-variable "openrouter_api_key" {
-  description = "OpenRouter API key if openrouter models are targeted."
+variable "ai_api_key" {
+  description = "Generic AI API key if key-authenticated models are targeted."
   type        = string
   default     = ""
   sensitive   = true

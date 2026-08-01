@@ -41,8 +41,8 @@ resource "google_cloud_run_v2_service" "plated" {
         value = var.plate_api_token
       }
       env {
-        name  = "OPENROUTER_API_KEY"
-        value = var.openrouter_api_key
+        name  = "AI_API_KEY"
+        value = var.ai_api_key
       }
 
       resources {

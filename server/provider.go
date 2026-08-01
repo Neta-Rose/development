@@ -54,7 +54,7 @@ func (f *ProviderFactory) GetModel(ctx context.Context, provider string, modelID
 	var err error
 
 	switch provider {
-	case "openrouter":
+	case "openai", "openrouter":
 		opts := []openai.Option{
 			openai.WithToken(f.cfg.APIKey),
 			openai.WithBaseURL(f.cfg.Endpoint),
@@ -76,15 +76,6 @@ func (f *ProviderFactory) GetModel(ctx context.Context, provider string, modelID
 			bedrock.WithModel(modelID),
 		}
 		created, err = bedrock.New(opts...)
-
-	case "openai":
-		opts := []openai.Option{
-			openai.WithToken(f.cfg.OpenAIAPIKey),
-			openai.WithBaseURL(f.cfg.OpenAIEndpoint),
-			openai.WithModel(modelID),
-			openai.WithHTTPClient(f.hc),
-		}
-		created, err = openai.New(opts...)
 
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", provider)

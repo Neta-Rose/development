@@ -2,13 +2,13 @@
 
 The network half of AI food logging. The app photographs a plate once per thing
 added to it, posts the whole batch here, and this service asks a vision model
-through [OpenRouter](https://openrouter.ai) which foods are on it.
+which foods are on it.
 
 It exists for two reasons:
 
-- **The OpenRouter key stays server-side.** A key compiled into the app ships
+- **The AI API key stays server-side.** A key compiled into the app ships
   inside the binary and any user can extract it.
-- **The model is a deployment knob.** `OPENROUTER_MODEL` re-points the detector
+- **The model is a deployment knob.** `AI_MODEL` re-points the detector
   with a restart and no client release.
 
 Everything else in `healthapp` is offline-first. This is the one path that needs
@@ -47,41 +47,41 @@ did not otherwise claim.
 
 ```bash
 cd server
-export OPENROUTER_API_KEY=sk-or-v1-...
+export AI_API_KEY=sk-...
 export PLATE_API_TOKEN=$(openssl rand -hex 32)   # see "Authentication"
 go run .
 ```
 
 ```bash
 go vet ./...     # clean
-go test ./...    # all green, offline — no key needed, OpenRouter is stubbed
+go test ./...    # all green, offline — no key needed, upstream is stubbed
 gofmt -l .       # silent
 ```
 
-The tests never reach the network: `httptest` stands in for OpenRouter, so the
+The tests never reach the network: `httptest` stands in for the AI provider, so the
 suite runs on a laptop with no credentials.
 
 ## Configuration
 
 | variable | default | notes |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | — | Empty is **normal**: detection answers `not_configured` and the app hides the mode. |
-| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | Any multimodal OpenRouter id that supports structured outputs. |
+| `AI_API_KEY` | — | Empty is **normal**: detection answers `not_configured` and the app hides the mode. |
+| `AI_MODEL` | `vertex:gemini-2.5-flash` | Any multimodal model id that supports structured outputs. |
 | `ALLOW_MODEL_OVERRIDE` | `false` | Lets a request pick the model. Leave off in production — callers would choose what you are billed for. |
 | `PLATE_API_TOKEN` | — | Shared secret required as `Authorization: Bearer …`. Empty leaves the endpoint open. |
 | `ADDR` / `PORT` | `:8080` | `PORT` alone is honoured for platforms that inject it. |
-| `OPENROUTER_ENDPOINT` | OpenRouter's chat-completions URL | Must be HTTPS, or loopback HTTP for tests. |
-| `OPENROUTER_TIMEOUT` | `24s` | **Total** budget including the one resend. Deliberately under the app's 30 s ceiling so the app gets a described failure instead of giving up first. |
-| `OPENROUTER_TEMPERATURE` | `0` | |
-| `OPENROUTER_MAX_TOKENS` | `2048` | |
+| `AI_ENDPOINT` | `https://api.openai.com/v1` | Must be HTTPS, or loopback HTTP for tests. |
+| `AI_TIMEOUT` | `24s` | **Total** budget including the one resend. Deliberately under the app's 30 s ceiling so the app gets a described failure instead of giving up first. |
+| `AI_TEMPERATURE` | `0` | |
+| `AI_MAX_TOKENS` | `2048` | |
 | `MAX_SHOTS` | `8` | The app caps at the same number; this is the copy a caller cannot edit. |
 | `MAX_REQUEST_BYTES` | `25165824` | 8 shots of 1024 px JPEG land near 3 MB. |
-| `OPENROUTER_REFERER`, `OPENROUTER_TITLE` | — | OpenRouter attribution headers. |
+| `AI_REFERER`, `AI_TITLE` | — | Attribution headers. |
 
 ## Authentication
 
 **`PLATE_API_TOKEN` is optional and the service starts without it, but an
-unauthenticated deployment spends your OpenRouter credit for anyone who finds
+unauthenticated deployment spends your AI credit for anyone who finds
 the URL.** Startup logs a warning when it is unset. Either set it, or keep the
 service off the public internet.
 
@@ -107,7 +107,7 @@ returns is per-user.
 
 ```jsonc
 {
-  "model": "google/gemini-2.5-flash",
+  "model": "vertex:gemini-2.5-flash",
   "items": [
     {
       "instance_id": "chicken_1",
@@ -139,11 +139,11 @@ one gets different copy on the camera pane.
 | --- | --- | --- |
 | `bad_request` | 400 | Malformed body, no shots, too many shots, not base64, not a JPEG, or a refused model override. |
 | `unauthorized` | 401 | `PLATE_API_TOKEN` is set and the bearer token did not match. |
-| `not_configured` | 503 | No `OPENROUTER_API_KEY`. |
-| `no_connection` | 502 | OpenRouter unreachable. |
+| `not_configured` | 503 | No `AI_API_KEY` or provider credentials. |
+| `no_connection` | 502 | Upstream AI service unreachable. |
 | `timeout` | 504 | The budget expired. |
 | `unreadable` | 502 | Two replies in a row failed schema validation. |
-| `upstream_error` | 502 | OpenRouter answered non-2xx; the upstream status is in `error.status`. |
+| `upstream_error` | 502 | Upstream AI service answered non-2xx; the upstream status is in `error.status`. |
 | `internal` | 500 | Anything else. |
 
 An unreadable reply is resent **once**. Network, timeout and HTTP failures are
@@ -153,19 +153,19 @@ already offers a retry control the user drives.
 ### `GET /healthz`
 
 ```json
-{"status":"ok","configured":true,"model":"google/gemini-2.5-flash","max_shots":8}
+{"status":"ok","configured":true,"model":"vertex:gemini-2.5-flash","max_shots":8}
 ```
 
-`configured` reports whether a key is present, never what it is, so a deploy can
+`configured` reports whether credentials are present, never what they are, so a deploy can
 be checked before the secret is wired up.
 
 ## What never leaves and never lands
 
-- **Photos are transient.** They arrive in a request body, go to OpenRouter, and
+- **Photos are transient.** They arrive in a request body, go to the AI model, and
   are dropped when the handler returns. Nothing is written to disk and no
   request body is logged.
 - **The key is structurally uncopyable into an error.** `upstreamError` carries a
-  status code and no body, because an OpenRouter error body can echo the request
+  status code and no body, because an upstream error body can echo the request
   back. `TestNoFailureCarriesTheAPIKey` and `TestDetectEndpointNeverEchoesTheKey`
   drive every failure path with a marked key and assert it never appears.
 - **Logs carry counts, not content**: model id, shot count, item count, how many
